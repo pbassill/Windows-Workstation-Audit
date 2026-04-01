@@ -30,7 +30,7 @@
 # ============================================================
 #  INITIALISATION
 # ============================================================
-$ScriptVersion = "4.0.1"
+$ScriptVersion = "4.1.0"
 $Timestamp     = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
 $ReportPath    = "$env:USERPROFILE\Desktop\OTY_Heavy_Industries_Audit_$Timestamp.txt"
 $SecCfg        = "$env:TEMP\oty_secedit_$Timestamp.cfg"
@@ -2167,6 +2167,634 @@ $s = if ($null -eq $nullPipes -or $nullPipes -eq "") { "PASS" } else { "FAIL" }
 Add-Result "44.8" "No Anonymous Pipe Access (Null Session Pipes)" $s "NullSessionPipes: $(if ($null -eq $nullPipes -or $nullPipes -eq '') {'None (correct)'} else {$nullPipes})" "CIS-L2"
 
 # ============================================================
+#  SECTION 45: ATTACK SURFACE REDUCTION - SPECIFIC RULES  [CIS L1/L2]
+# ============================================================
+Write-SectionHeader "45. ATTACK SURFACE REDUCTION - SPECIFIC RULES" "CIS L1/L2"
+
+# ASR rules are stored as per-GUID DWORD values under the Actions key.
+# Values: 0=Disabled, 1=Block, 2=Audit, 6=Warn. CIS L1 requires 1 (Block).
+$asrBase = "HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\Windows Defender Exploit Guard\ASR\Rules"
+
+$asrRules = @(
+    @{ GUID = "BE9BA2D9-53EA-4CDC-84E5-9B1EEEE46550"; Name = "Block executable content from email/webmail";        L = "L1" }
+    @{ GUID = "D4F940AB-401B-4EFC-AADC-AD5F3C50688A"; Name = "Block Office apps from creating child processes";    L = "L1" }
+    @{ GUID = "3B576869-A4EC-4529-8536-B80A7769E899"; Name = "Block Office apps creating executable content";      L = "L1" }
+    @{ GUID = "75668C1F-73B5-4CF0-BB93-3ECF5CB7CC84"; Name = "Block Office apps injecting into other processes";   L = "L1" }
+    @{ GUID = "D3E037E1-3EB8-44C8-A917-57927947596D"; Name = "Block JS/VBS launching downloaded executables";      L = "L1" }
+    @{ GUID = "5BEB7EFE-FD9A-4556-801D-275E5FFC04CC"; Name = "Block execution of obfuscated scripts";             L = "L1" }
+    @{ GUID = "92E97FA1-2EDF-4476-BDD6-9DD0B4DDDC7B"; Name = "Block Win32 API calls from Office macros";          L = "L1" }
+    @{ GUID = "9E6C4E1F-7D60-472F-BA1A-A39EF669E4B2"; Name = "Block credential stealing from LSASS";              L = "L1" }
+    @{ GUID = "C1DB55AB-C21A-4637-BB3F-A12568109D35"; Name = "Block ransomware (advanced protection)";            L = "L1" }
+    @{ GUID = "B2B3F03D-6A65-4F7B-A9C7-1C7EF74A9BA4"; Name = "Block untrusted/unsigned processes from USB";      L = "L1" }
+    @{ GUID = "D1E49AAC-8F56-4280-B9BA-993A6D77406C"; Name = "Block process creation from PSExec/WMI";            L = "L1" }
+    @{ GUID = "E6DB77E5-3DF2-4CF1-B95A-636979351E5B"; Name = "Block persistence via WMI event subscription";      L = "L1" }
+    @{ GUID = "56A863A9-875C-4D4A-A628-9A2C80B67B31"; Name = "Block abuse of vulnerable signed drivers";          L = "L2" }
+    @{ GUID = "26190899-1602-49E8-8B27-EB1D0A1CE869"; Name = "Block Adobe Reader from creating child processes";   L = "L2" }
+    @{ GUID = "01443614-CD74-433A-B99E-2ECDC07BFC25"; Name = "Block executables unless meet prevalence/age/trust"; L = "L2" }
+    @{ GUID = "A8F5898E-1DC8-49A9-9878-85004B8A61E6"; Name = "Block webshell creation for servers";               L = "L2" }
+)
+
+foreach ($rule in $asrRules) {
+    $val = Get-RegValue $asrBase $rule.GUID.ToLower()
+    if ($null -eq $val) {
+        # Some tools write the GUID in upper case
+        $val = Get-RegValue $asrBase $rule.GUID
+    }
+    $status = switch ($val) {
+        1       { "PASS" }   # Block
+        2       { "WARN" }   # Audit only
+        6       { "WARN" }   # Warn only
+        0       { "FAIL" }   # Disabled
+        default { "WARN" }   # Not configured
+    }
+    $desc = switch ($val) {
+        1       { "Block (1)" }
+        2       { "Audit only (2) - not blocking" }
+        6       { "Warn only (6) - not blocking" }
+        0       { "Disabled (0)" }
+        default { "Not configured - rule not set" }
+    }
+    Add-Result "45.$($rule.L)" "ASR [$($rule.L)]: $($rule.Name)" $status "GUID: $($rule.GUID) | Value: $desc" "CIS-L2"
+}
+
+# ============================================================
+#  SECTION 46: SYSTEM EXPLOIT PROTECTION (ASLR / CFG)  [CIS L2]
+# ============================================================
+Write-SectionHeader "46. SYSTEM EXPLOIT PROTECTION (ASLR/CFG)" "CIS L2"
+
+# Get-ProcessMitigation returns system-level mitigation state
+try {
+    $sysMit = Get-ProcessMitigation -System -ErrorAction Stop
+
+    # ASLR - ForceRelocateImages
+    $aslrForce = $sysMit.ASLR.ForceRelocateImages
+    $s = if ($aslrForce -eq "ON") { "PASS" } else { "WARN" }
+    Add-Result "46.1" "ASLR: Force Relocate Images" $s "ForceRelocateImages: $aslrForce" "CIS-L2"
+
+    # ASLR - Bottom-up randomisation
+    $aslrBU = $sysMit.ASLR.BottomUp
+    $s = if ($aslrBU -eq "ON") { "PASS" } else { "WARN" }
+    Add-Result "46.2" "ASLR: Bottom-Up Randomisation" $s "BottomUp: $aslrBU" "CIS-L2"
+
+    # ASLR - High entropy
+    $aslrHE = $sysMit.ASLR.HighEntropy
+    $s = if ($aslrHE -eq "ON") { "PASS" } else { "WARN" }
+    Add-Result "46.3" "ASLR: High Entropy" $s "HighEntropy: $aslrHE" "CIS-L2"
+
+    # CFG - Control Flow Guard
+    $cfg = $sysMit.CFG.Enable
+    $s = if ($cfg -eq "ON") { "PASS" } else { "FAIL" }
+    Add-Result "46.4" "Control Flow Guard (CFG)" $s "CFG Enable: $cfg" "CIS-L2"
+
+    # DEP - also checked via bcdedit in §24, but Get-ProcessMitigation gives app-level view
+    $dep = $sysMit.DEP.Enable
+    $s = if ($dep -eq "ON") { "PASS" } else { "FAIL" }
+    Add-Result "46.5" "DEP: System-Level Enable State" $s "DEP Enable: $dep" "CIS-L2"
+
+    # Heap spray pre-allocation
+    $heapSpray = $sysMit.Payload.EnableExportAddressFilter
+    $s = if ($heapSpray -eq "ON") { "PASS" } else { "WARN" }
+    Add-Result "46.6" "Export Address Filter (EAF)" $s "EnableExportAddressFilter: $heapSpray" "CIS-L2"
+
+} catch {
+    Add-Result "46.0" "System Exploit Protection" "WARN" "Get-ProcessMitigation not available - check Windows Defender Exploit Protection in Security Centre" "CIS-L2"
+}
+
+# Exploit protection settings via registry (backup path)
+$epXml = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender ExploitGuard\Exploit Protection" "ExploitProtectionSettings"
+$s = if ($null -ne $epXml) { "PASS" } else { "WARN" }
+Add-Result "46.7" "Exploit Protection Custom Config Applied" $s "ExploitProtectionSettings policy: $(if ($null -ne $epXml) {'Configured'} else {'Not configured via policy'})" "CIS-L2"
+
+# ============================================================
+#  SECTION 47: KERNEL DMA PROTECTION  [CIS L2 | CE+]
+# ============================================================
+Write-SectionHeader "47. KERNEL DMA PROTECTION" "CIS L2 | CE+"
+
+# DMA Guard policy - protects against DMA/Thunderbolt attacks
+$dmaPolicy = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Kernel DMA Protection" "DeviceEnumerationPolicy"
+$s = switch ($dmaPolicy) {
+    0       { "PASS" }   # Block all external DMA devices
+    1       { "WARN" }   # Allow after user logon
+    2       { "FAIL" }   # Allow all (no protection)
+    default { "WARN" }   # Not configured - falls back to firmware
+}
+Add-Result "47.1" "Kernel DMA Guard Policy" $s "DeviceEnumerationPolicy: $(if ($null -eq $dmaPolicy) {'Not set (firmware default)'} else {"$dmaPolicy (0=Block, 1=After logon, 2=Allow all)"})" "CIS-L2"
+
+# Check if Kernel DMA protection is active via system info
+try {
+    $msinfo = Get-CimInstance -Namespace root/cimv2 -Class Win32_DeviceGuard -ErrorAction Stop
+    $dmaActive = $msinfo.SecurityServicesRunning -contains 3
+    $s = if ($dmaActive) { "PASS" } else { "WARN" }
+    Add-Result "47.2" "Kernel DMA Protection Active (VBS)" $s "SecurityServicesRunning includes DMA protection: $dmaActive" "CIS-L2"
+} catch {
+    Add-Result "47.2" "Kernel DMA Protection Active" "WARN" "Could not query Win32_DeviceGuard - verify in System Information > Kernel DMA Protection" "CIS-L2"
+}
+
+# Thunderbolt / PCIe DMA block on lock
+$tbLock = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Thunderbolt" "AllowThunderboltOnStandby"
+$s = if ($tbLock -eq 0 -or $null -eq $tbLock) { "PASS" } else { "WARN" }
+Add-Result "47.3" "Thunderbolt DMA Blocked When Locked" $s "AllowThunderboltOnStandby: $(if ($null -eq $tbLock) {'Default'} else {$tbLock})" "CIS-L2"
+
+# ============================================================
+#  SECTION 48: LAPS (LOCAL ADMIN PASSWORD SOLUTION)  [CIS L1 | CE3]
+# ============================================================
+Write-SectionHeader "48. LAPS - LOCAL ADMIN PASSWORD SOLUTION" "CIS L1 | CE3"
+
+# Windows LAPS (built-in, Win11 22H2+ / Win10 KB5025221+)
+$wLapsPolicy = Get-RegValue "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\LAPS" "BackupDirectory"
+$wLapsEnabled = $null -ne $wLapsPolicy
+
+# Legacy Microsoft LAPS (GPO extension)
+$legacyLapsGPO = Test-Path "HKLM:\SOFTWARE\Policies\Microsoft Services\AdmPwd"
+$legacyLapsAdmPwd = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft Services\AdmPwd" "AdmPwdEnabled"
+
+if ($wLapsEnabled) {
+    $backupTarget = switch ($wLapsPolicy) {
+        1 { "Azure AD / Entra ID" }
+        2 { "Active Directory" }
+        0 { "Disabled" }
+        default { "Unknown ($wLapsPolicy)" }
+    }
+    $s = if ($wLapsPolicy -ge 1) { "PASS" } else { "FAIL" }
+    Add-Result "48.1" "Windows LAPS Enabled" $s "BackupDirectory: $wLapsPolicy ($backupTarget)" "CIS"
+} elseif ($legacyLapsAdmPwd -eq 1) {
+    Add-Result "48.1" "Legacy LAPS Enabled" "PASS" "Microsoft LAPS (GPO extension) AdmPwdEnabled: 1" "CIS"
+} else {
+    Add-Result "48.1" "LAPS Configured" "FAIL" "Neither Windows LAPS nor legacy LAPS detected - local admin password unmanaged" "CIS"
+}
+
+# LAPS password complexity
+$lapsComplex = Get-RegValue "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\LAPS" "PasswordComplexity"
+$s = if ($null -eq $lapsComplex -or $lapsComplex -ge 3) { "PASS" } else { "WARN" }
+Add-Result "48.2" "LAPS Password Complexity" $s "PasswordComplexity: $(if ($null -eq $lapsComplex) {'Default'} else {$lapsComplex}) (4=Large+Small+Digits+Special)" "CIS"
+
+# LAPS password length
+$lapsLen = Get-RegValue "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\LAPS" "PasswordLength"
+$s = if ($null -eq $lapsLen -or [int]$lapsLen -ge 15) { "PASS" } else { "WARN" }
+Add-Result "48.3" "LAPS Password Length >= 15" $s "PasswordLength: $(if ($null -eq $lapsLen) {'Default (14)'} else {$lapsLen})" "CIS"
+
+# LAPS password age
+$lapsAge = Get-RegValue "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\LAPS" "PasswordAgeDays"
+$s = if ($null -eq $lapsAge -or ([int]$lapsAge -ge 1 -and [int]$lapsAge -le 30)) { "PASS" } else { "WARN" }
+Add-Result "48.4" "LAPS Password Age <= 30 Days" $s "PasswordAgeDays: $(if ($null -eq $lapsAge) {'Default (30)'} else {$lapsAge})" "CIS"
+
+# LAPS post-auth action (Windows LAPS - reset after use)
+$lapsPostAuth = Get-RegValue "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\LAPS" "PostAuthenticationActions"
+$s = if ($null -ne $lapsPostAuth -and $lapsPostAuth -ge 1) { "PASS" } else { "WARN" }
+Add-Result "48.5" "LAPS Post-Auth Reset Action Configured" $s "PostAuthenticationActions: $lapsPostAuth (1=Reset pwd, 3=Reset pwd+logoff, 5=Reset pwd+reboot)" "CIS"
+
+# ============================================================
+#  SECTION 49: NETWORK LIST MANAGER  [CIS L2]
+# ============================================================
+Write-SectionHeader "49. NETWORK LIST MANAGER" "CIS L2"
+
+# All networks set to Public (most restrictive) when unmanaged
+$nlmBase = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\NetworkListManager"
+
+$allNetCat = Get-RegValue $nlmBase "Category"
+$s = switch ($allNetCat) {
+    0 { "PASS" }   # Public
+    1 { "WARN" }   # Private
+    2 { "WARN" }   # Domain
+    default { "WARN" }
+}
+Add-Result "49.1" "Network Category Default: Public" $s "Category: $(if ($null -eq $allNetCat) {'Not set - user can change'} else {"$allNetCat (0=Public, 1=Private, 2=Domain)"})" "CIS-L2"
+
+# Prevent changing network location
+$nlmUserChange = Get-RegValue $nlmBase "CategoryReadOnly"
+$s = if ($nlmUserChange -eq 1) { "PASS" } else { "WARN" }
+Add-Result "49.2" "Network Location: User Cannot Change" $s "CategoryReadOnly: $nlmUserChange" "CIS-L2"
+
+# Unidentified networks - set to Public/Not connected
+$unidentCat  = Get-RegValue "$nlmBase\Category_Management" "AllNetworks"
+$s = if ($null -eq $unidentCat -or $unidentCat -eq 0) { "PASS" } else { "WARN" }
+Add-Result "49.3" "Unidentified Networks: Public or Blocked" $s "AllNetworks category: $(if ($null -eq $unidentCat) {'Default'} else {$unidentCat})" "CIS-L2"
+
+# Prohibit connection to non-domain networks when on domain
+$prohibitNonDomain = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WcmSvc\GroupPolicy" "fBlockNonDomain"
+$s = if ($prohibitNonDomain -eq 1) { "PASS" } else { "WARN" }
+Add-Result "49.4" "Block Non-Domain Connections on Domain Network" $s "fBlockNonDomain: $prohibitNonDomain" "CIS-L2"
+
+# ============================================================
+#  SECTION 50: DELIVERY OPTIMISATION  [CIS L2]
+# ============================================================
+Write-SectionHeader "50. DELIVERY OPTIMISATION" "CIS L2"
+
+$doBase = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DeliveryOptimization"
+
+$doMode = Get-RegValue $doBase "DODownloadMode"
+# CIS L2: Allow LAN (1) or Group (2) but NOT Internet peers (3) or Bypass (100)
+$s = switch ($doMode) {
+    0       { "PASS" }   # HTTP only
+    1       { "PASS" }   # HTTP + LAN peers
+    2       { "PASS" }   # HTTP + private group peers
+    3       { "FAIL" }   # HTTP + Internet peers (data leaves network)
+    99      { "PASS" }   # Simple download
+    100     { "WARN" }   # Bypass (uses BITS)
+    default { "WARN" }   # Not set - defaults may vary
+}
+Add-Result "50.1" "Delivery Optimisation: No Internet P2P" $s "DODownloadMode: $(if ($null -eq $doMode) {'Not set (default varies by edition)'} else {"$doMode (0=HTTP only, 1=LAN, 3=Internet - FAIL)"})" "CIS-L2"
+
+# Restrict bandwidth
+$doBandwidth = Get-RegValue $doBase "DOMaxDownloadBandwidth"
+Add-Result "50.2" "Delivery Optimisation Bandwidth" "INFO" "DOMaxDownloadBandwidth: $(if ($null -eq $doBandwidth) {'Unlimited (not configured)'} else {"$doBandwidth KB/s"})" "CIS-L2"
+
+# Cache size
+$doCache = Get-RegValue $doBase "DOMaxCacheSize"
+Add-Result "50.3" "Delivery Optimisation Cache Size" "INFO" "DOMaxCacheSize: $(if ($null -eq $doCache) {'Default'} else {"$doCache%"})" "CIS-L2"
+
+# ============================================================
+#  SECTION 51: TIME PROVIDER / NTP SECURITY  [CIS L2]
+# ============================================================
+Write-SectionHeader "51. TIME PROVIDER / NTP SECURITY" "CIS L2"
+
+$w32Base = "HKLM:\SYSTEM\CurrentControlSet\Services\W32Time"
+
+# NTP client enabled
+$ntpEnabled = Get-RegValue "$w32Base\TimeProviders\NtpClient" "Enabled"
+$s = if ($ntpEnabled -eq 1 -or $null -eq $ntpEnabled) { "PASS" } else { "WARN" }
+Add-Result "51.1" "NTP Client Enabled" $s "NtpClient Enabled: $(if ($null -eq $ntpEnabled) {'Default (1)'} else {$ntpEnabled})" "CIS-L2"
+
+# NTP server configured (not default Microsoft or blank)
+$ntpServer = Get-RegValue "$w32Base\Parameters" "NtpServer"
+$s = if ($null -ne $ntpServer -and $ntpServer -ne "") { "PASS" } else { "WARN" }
+Add-Result "51.2" "NTP Server Configured" $s "NtpServer: $(if ($null -eq $ntpServer -or $ntpServer -eq '') {'Not configured'} else {$ntpServer})" "CIS-L2"
+
+# Time sync type
+$ntpType = Get-RegValue "$w32Base\Parameters" "Type"
+$s = if ($ntpType -in @("NTP","AllSync","NT5DS")) { "PASS" } else { "WARN" }
+Add-Result "51.3" "NTP Sync Type Configured" $s "Type: $(if ($null -eq $ntpType) {'Not set'} else {$ntpType})" "CIS-L2"
+
+# W32tm service running
+$w32tmSvc = Get-Service -Name "W32Time" -ErrorAction SilentlyContinue
+$s = if ($w32tmSvc -and $w32tmSvc.Status -eq "Running") { "PASS" } else { "WARN" }
+Add-Result "51.4" "Windows Time Service Running" $s "W32Time: $(if ($w32tmSvc) {$w32tmSvc.Status} else {'Not found'})" "CIS-L2"
+
+# Resync interval - should not be excessively long
+$pollInterval = Get-RegValue "$w32Base\Config" "MinPollInterval"
+$s = if ($null -eq $pollInterval -or [int]$pollInterval -le 10) { "PASS" } else { "WARN" }
+Add-Result "51.5" "NTP Poll Interval Reasonable" $s "MinPollInterval: $(if ($null -eq $pollInterval) {'Default'} else {"2^$pollInterval seconds"})" "CIS-L2"
+
+# ============================================================
+#  SECTION 52: WINDOWS DEFENDER APPLICATION GUARD  [CIS L2]
+# ============================================================
+Write-SectionHeader "52. WINDOWS DEFENDER APPLICATION GUARD (WDAG)" "CIS L2"
+
+# WDAG feature installed
+try {
+    $wdagFeature = Get-WindowsOptionalFeature -Online -FeatureName "Windows-Defender-ApplicationGuard" -ErrorAction Stop
+    $s = if ($wdagFeature.State -eq "Enabled") { "PASS" } else { "WARN" }
+    Add-Result "52.1" "WDAG Feature Installed" $s "Feature state: $($wdagFeature.State)" "CIS-L2"
+} catch {
+    Add-Result "52.1" "WDAG Feature" "WARN" "Could not query WDAG feature (may not be available on Home/non-Enterprise)" "CIS-L2"
+}
+
+# WDAG policy - enabled for Edge
+$wdagPolicy = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\AppHVSI" "AllowAppHVSI_ProviderSet"
+$s = if ($null -ne $wdagPolicy -and $wdagPolicy -ge 1) { "PASS" } else { "WARN" }
+Add-Result "52.2" "WDAG Policy Enabled for Edge" $s "AllowAppHVSI_ProviderSet: $(if ($null -eq $wdagPolicy) {'Not configured'} else {$wdagPolicy})" "CIS-L2"
+
+# WDAG clipboard - should be restricted
+$wdagClipboard = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\AppHVSI" "AppHVSIClipboardSettings"
+$s = if ($wdagClipboard -eq 1 -or $null -eq $wdagClipboard) { "PASS" } else { "WARN" }
+Add-Result "52.3" "WDAG Clipboard Restricted" $s "AppHVSIClipboardSettings: $wdagClipboard (1=Host->Container only, 2=Container->Host, 3=Both ways)" "CIS-L2"
+
+# WDAG print - disabled
+$wdagPrint = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\AppHVSI" "AppHVSIPrintingSettings"
+$s = if ($wdagPrint -eq 0 -or $null -eq $wdagPrint) { "PASS" } else { "WARN" }
+Add-Result "52.4" "WDAG Printing Disabled" $s "AppHVSIPrintingSettings: $(if ($null -eq $wdagPrint) {'Default (0)'} else {$wdagPrint})" "CIS-L2"
+
+# WDAG data persistence - disabled (CIS: container should not persist data)
+$wdagPersist = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\AppHVSI" "AllowPersistence"
+$s = if ($wdagPersist -eq 0 -or $null -eq $wdagPersist) { "PASS" } else { "WARN" }
+Add-Result "52.5" "WDAG Data Persistence Disabled" $s "AllowPersistence: $(if ($null -eq $wdagPersist) {'Default (0)'} else {$wdagPersist})" "CIS-L2"
+
+# ============================================================
+#  SECTION 53: RPC & DCOM SECURITY  [CIS L2]
+# ============================================================
+Write-SectionHeader "53. RPC & DCOM SECURITY" "CIS L2"
+
+# RPC: Restrict unauthenticated clients
+$rpcRestrict = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Rpc" "RestrictRemoteClients"
+$s = if ($rpcRestrict -eq 1) { "PASS" } else { "FAIL" }
+Add-Result "53.1" "RPC: Restrict Unauthenticated Clients" $s "RestrictRemoteClients: $(if ($null -eq $rpcRestrict) {'Not set (0=None, insecure)'} else {"$rpcRestrict (1=Authenticated only, 2=Authenticated+exempt)"})" "CIS-L2"
+
+# RPC: Enable auth endpoint resolution
+$rpcAuthEP = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Rpc" "EnableAuthEpResolution"
+$s = if ($rpcAuthEP -eq 1) { "PASS" } else { "WARN" }
+Add-Result "53.2" "RPC: Authenticated Endpoint Resolution" $s "EnableAuthEpResolution: $rpcAuthEP" "CIS-L2"
+
+# DCOM: Machine Access Restrictions defined
+$dcomAccess = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\DCOM" "MachineAccessRestriction"
+$s = if ($null -ne $dcomAccess) { "PASS" } else { "WARN" }
+Add-Result "53.3" "DCOM: Machine Access Restriction Defined" $s "MachineAccessRestriction: $(if ($null -ne $dcomAccess) {'Configured (SDDL)'} else {'Not configured - uses default'})" "CIS-L2"
+
+# DCOM: Machine Launch Restrictions defined
+$dcomLaunch = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\DCOM" "MachineLaunchRestriction"
+$s = if ($null -ne $dcomLaunch) { "PASS" } else { "WARN" }
+Add-Result "53.4" "DCOM: Machine Launch Restriction Defined" $s "MachineLaunchRestriction: $(if ($null -ne $dcomLaunch) {'Configured (SDDL)'} else {'Not configured - uses default'})" "CIS-L2"
+
+# ============================================================
+#  SECTION 54: GROUP POLICY INFRASTRUCTURE  [CIS L2]
+# ============================================================
+Write-SectionHeader "54. GROUP POLICY INFRASTRUCTURE" "CIS L2"
+
+$gpBase = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Group Policy"
+
+# Always process GPO even if unchanged (Security extension)
+$secGPOGUID  = "{827D319E-6EAC-11D2-A4EA-00C04F79F83A}"
+$secNoChange = Get-RegValue "$gpBase\$secGPOGUID" "NoGPOListChanges"
+$s = if ($secNoChange -eq 0 -or $null -eq $secNoChange) { "PASS" } else { "WARN" }
+Add-Result "54.1" "GPO: Always Reprocess Security Policy" $s "NoGPOListChanges (Security): $(if ($null -eq $secNoChange) {'Not set (default reprocess)'} else {$secNoChange})" "CIS-L2"
+
+# Registry policy processing - always process
+$regGPOGUID  = "{35378EAC-683F-11D2-A89A-00C04FBBCFA2}"
+$regNoChange = Get-RegValue "$gpBase\$regGPOGUID" "NoGPOListChanges"
+$s = if ($regNoChange -eq 0 -or $null -eq $regNoChange) { "PASS" } else { "WARN" }
+Add-Result "54.2" "GPO: Always Reprocess Registry Policy" $s "NoGPOListChanges (Registry): $regNoChange" "CIS-L2"
+
+# Loopback processing
+$loopback = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\System" "UserPolicyMode"
+Add-Result "54.3" "GPO: Loopback Processing Mode" "INFO" "UserPolicyMode: $(if ($null -eq $loopback) {'Not configured'} else {"$loopback (1=Merge, 2=Replace)"})" "CIS-L2"
+
+# Turn off background refresh
+$bgRefresh = Get-RegValue "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" "SyncForegroundPolicy"
+$s = if ($bgRefresh -eq 1) { "PASS" } else { "WARN" }
+Add-Result "54.4" "GPO: Synchronous Foreground Refresh" $s "SyncForegroundPolicy: $bgRefresh (1=Synchronous on logon)" "CIS-L2"
+
+# ============================================================
+#  SECTION 55: PRINT SECURITY  [CIS L1/L2]
+# ============================================================
+Write-SectionHeader "55. PRINT SECURITY" "CIS L1/L2"
+
+$printBase = "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Printers"
+
+# Point and Print - restrict to approved servers
+$papRestrict = Get-RegValue "$printBase\PointAndPrint" "Restricted"
+$s = if ($papRestrict -eq 1) { "PASS" } else { "FAIL" }
+Add-Result "55.1" "Point and Print Restricted to Approved Servers" $s "Restricted: $papRestrict" "CIS"
+
+# Point and Print - no warning/elevation on install
+$papNoWarn = Get-RegValue "$printBase\PointAndPrint" "NoWarningNoElevationOnInstall"
+$s = if ($papNoWarn -eq 0 -or $null -eq $papNoWarn) { "PASS" } else { "FAIL" }
+Add-Result "55.2" "Point and Print: Warning/Elevation on Install" $s "NoWarningNoElevationOnInstall: $(if ($null -eq $papNoWarn) {'Default (0 - prompt)'} else {$papNoWarn})" "CIS"
+
+# Point and Print - no warning on update
+$papUpdatePrompt = Get-RegValue "$printBase\PointAndPrint" "UpdatePromptSettings"
+$s = if ($papUpdatePrompt -eq 0 -or $null -eq $papUpdatePrompt) { "PASS" } else { "FAIL" }
+Add-Result "55.3" "Point and Print: Prompt on Update" $s "UpdatePromptSettings: $(if ($null -eq $papUpdatePrompt) {'Default (0 - prompt)'} else {$papUpdatePrompt})" "CIS"
+
+# Only admins can install print drivers
+$adminPrintDriver = Get-RegValue "$printBase\PointAndPrint" "RestrictDriverInstallationToAdministrators"
+$s = if ($adminPrintDriver -eq 1) { "PASS" } else { "FAIL" }
+Add-Result "55.4" "Print Driver Install: Admins Only" $s "RestrictDriverInstallationToAdministrators: $adminPrintDriver" "CIS"
+
+# Disable downloading print drivers from Windows Update
+$noWUPrint = Get-RegValue $printBase "DisableWebPnPDownload"
+$s = if ($noWUPrint -eq 1) { "PASS" } else { "WARN" }
+Add-Result "55.5" "Print Driver Download from Internet Disabled" $s "DisableWebPnPDownload: $noWUPrint" "CIS-L2"
+
+# Redirection of print jobs via spooler (PrintNightmare mitigation)
+$printNMClient = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Printers" "DisableWebPrinting"
+$s = if ($printNMClient -eq 1) { "PASS" } else { "WARN" }
+Add-Result "55.6" "Web-Based Printing Disabled" $s "DisableWebPrinting: $printNMClient" "CIS-L2"
+
+# Print spooler - RPC over TCP (PrintNightmare)
+$spoolRPC = Get-RegValue "HKLM:\System\CurrentControlSet\Control\Print" "RpcAuthnLevelPrivacyEnabled"
+$s = if ($spoolRPC -eq 1) { "PASS" } else { "FAIL" }
+Add-Result "55.7" "Print Spooler RPC Authentication Privacy" $s "RpcAuthnLevelPrivacyEnabled: $spoolRPC (1=Packet Privacy - CVE-2021-1675 mitigation)" "CIS"
+
+# ============================================================
+#  SECTION 56: WINDOWS COPILOT / AI FEATURES  [CIS L2]
+# ============================================================
+Write-SectionHeader "56. WINDOWS COPILOT / AI FEATURES" "CIS L2"
+
+$aiBase = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI"
+
+# Windows Recall - disable AI snapshot capture (Win11 24H2+)
+$recallDisable = Get-RegValue $aiBase "DisableAIDataAnalysis"
+$s = if ($recallDisable -eq 1) { "PASS" } else { "WARN" }
+Add-Result "56.1" "Windows Recall (AI Snapshots) Disabled" $s "DisableAIDataAnalysis: $(if ($null -eq $recallDisable) {'Not set - check if Recall is present'} else {$recallDisable})" "CIS-L2"
+
+# Recall save snapshots
+$recallSnaps = Get-RegValue $aiBase "TurnOffSavingSnapshots"
+$s = if ($recallSnaps -eq 1) { "PASS" } else { "WARN" }
+Add-Result "56.2" "Windows Recall Snapshot Saving Disabled" $s "TurnOffSavingSnapshots: $recallSnaps" "CIS-L2"
+
+# Windows Copilot
+$copilotDisable = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsCopilot" "TurnOffWindowsCopilot"
+$s = if ($copilotDisable -eq 1) { "PASS" } else { "WARN" }
+Add-Result "56.3" "Windows Copilot Disabled" $s "TurnOffWindowsCopilot: $(if ($null -eq $copilotDisable) {'Not set'} else {$copilotDisable})" "CIS-L2"
+
+# AI-powered content (broader)
+$aiContent = Get-RegValue $aiBase "AllowImageCreator"
+$s = if ($aiContent -eq 0) { "PASS" } else { "WARN" }
+Add-Result "56.4" "AI Image Creator Restricted" $s "AllowImageCreator: $(if ($null -eq $aiContent) {'Not configured'} else {$aiContent})" "CIS-L2"
+
+# Disable AI-based personalisation / inking
+$aiInking = Get-RegValue "HKCU:\SOFTWARE\Policies\Microsoft\InputPersonalization" "RestrictImplicitInkCollection"
+$s = if ($aiInking -eq 1) { "PASS" } else { "WARN" }
+Add-Result "56.5" "Input/Inking Personalisation Disabled" $s "RestrictImplicitInkCollection: $aiInking" "CIS-L2"
+
+# ============================================================
+#  SECTION 57: SENSITIVE FILE & REGISTRY PERMISSIONS  [CIS L2]
+# ============================================================
+Write-SectionHeader "57. SENSITIVE FILE & REGISTRY PERMISSIONS" "CIS L2"
+
+# Check SAM file is not world-readable
+$samPath = "$env:SystemRoot\System32\config\SAM"
+if (Test-Path $samPath) {
+    try {
+        $samACL     = Get-Acl $samPath -ErrorAction Stop
+        $everyoneAce = $samACL.Access | Where-Object {
+            $_.IdentityReference -match "Everyone|Users|Authenticated Users" -and
+            $_.FileSystemRights -match "Read|FullControl|Modify"
+        }
+        $s = if (-not $everyoneAce) { "PASS" } else { "FAIL" }
+        Add-Result "57.1" "SAM File: No Non-Admin Read Access" $s "Overly-permissive ACEs: $(if ($everyoneAce) {($everyoneAce.IdentityReference) -join ', '} else {'None found'})" "CIS-L2"
+    } catch {
+        Add-Result "57.1" "SAM File Permissions" "PASS" "Could not read ACL (locked by system - expected behaviour)" "CIS-L2"
+    }
+}
+
+# Check System32 directory not writable by non-admins
+$sys32Path = "$env:SystemRoot\System32"
+try {
+    $sysACL    = Get-Acl $sys32Path -ErrorAction Stop
+    $writableByUsers = $sysACL.Access | Where-Object {
+        $_.IdentityReference -match "Everyone|Users" -and
+        $_.FileSystemRights -match "Write|FullControl|Modify" -and
+        $_.AccessControlType -eq "Allow"
+    }
+    $s = if (-not $writableByUsers) { "PASS" } else { "FAIL" }
+    Add-Result "57.2" "System32: Not Writable by Non-Admins" $s "Writable-by-users ACEs: $(if ($writableByUsers) {($writableByUsers.IdentityReference) -join ', '} else {'None found'})" "CIS-L2"
+} catch {
+    Add-Result "57.2" "System32 Permissions" "WARN" "Could not read ACL on System32" "CIS-L2"
+}
+
+# Hosts file - check for unexpected modifications (hash vs known clean)
+$hostsPath = "$env:SystemRoot\System32\drivers\etc\hosts"
+if (Test-Path $hostsPath) {
+    $hostsContent = Get-Content $hostsPath -ErrorAction SilentlyContinue
+    $nonComment   = $hostsContent | Where-Object { $_ -notmatch "^#" -and $_ -match "\S" }
+    $s = if ($nonComment.Count -le 1) { "PASS" } else { "WARN" }
+    Add-Result "57.3" "Hosts File: No Unexpected Entries" $s "Non-comment entries: $($nonComment.Count) - Review if unexpected: $($nonComment -join ' | ')" "CIS-L2"
+}
+
+# LSA registry key protection
+$lsaRegPath = "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa"
+try {
+    $lsaACL    = Get-Acl "Registry::$lsaRegPath" -ErrorAction Stop
+    $lsaWriteByUsers = $lsaACL.Access | Where-Object {
+        $_.IdentityReference -match "Everyone|Users" -and
+        $_.RegistryRights -match "SetValue|FullControl" -and
+        $_.AccessControlType -eq "Allow"
+    }
+    $s = if (-not $lsaWriteByUsers) { "PASS" } else { "FAIL" }
+    Add-Result "57.4" "LSA Registry Key: No Non-Admin Write" $s "Writable-by-users ACEs: $(if ($lsaWriteByUsers) {($lsaWriteByUsers.IdentityReference) -join ', '} else {'None found'})" "CIS-L2"
+} catch {
+    Add-Result "57.4" "LSA Registry Key Permissions" "WARN" "Could not read ACL" "CIS-L2"
+}
+
+# ============================================================
+#  SECTION 58: INTERNET EXPLORER / LEGACY BROWSER  [CIS L1]
+# ============================================================
+Write-SectionHeader "58. INTERNET EXPLORER / LEGACY BROWSER" "CIS L1"
+
+$ieBase  = "HKLM:\SOFTWARE\Policies\Microsoft\Internet Explorer"
+$ieInstalled = Test-Path "$env:ProgramFiles\Internet Explorer\iexplore.exe"
+
+# IE removal/disable check (should be absent on modern builds)
+try {
+    $ieFeature = Get-WindowsOptionalFeature -Online -FeatureName "Internet-Explorer-Optional-amd64" -ErrorAction Stop
+    $s = if ($ieFeature.State -in @("Disabled","DisabledWithPayloadRemoved")) { "PASS" } else { "WARN" }
+    Add-Result "58.1" "Internet Explorer Feature Removed" $s "State: $($ieFeature.State)" "CIS"
+} catch {
+    $s = if (-not $ieInstalled) { "PASS" } else { "WARN" }
+    Add-Result "58.1" "Internet Explorer Present" $s "Binary present: $ieInstalled" "CIS"
+}
+
+# IE Enhanced Protected Mode
+$ieEPM = Get-RegValue "$ieBase\Main" "Isolation64Bit"
+$s = if ($ieEPM -eq 1 -or -not $ieInstalled) { "PASS" } else { "WARN" }
+Add-Result "58.2" "IE Enhanced Protected Mode (64-bit)" $s "Isolation64Bit: $ieEPM" "CIS"
+
+# IE Enhanced Security Configuration (ESC) - admin
+$ieESCAdmin = Get-RegValue "HKLM:\SOFTWARE\Microsoft\Active Setup\Installed Components\{A509B1A7-37EF-4b3f-8CFC-4F3A74704073}" "IsInstalled"
+$s = if ($ieESCAdmin -eq 1 -or -not $ieInstalled) { "PASS" } else { "WARN" }
+Add-Result "58.3" "IE Enhanced Security Config (Admin)" $s "ESC Admin IsInstalled: $ieESCAdmin" "CIS"
+
+# IE - disable suggested sites
+$ieSuggested = Get-RegValue "$ieBase\Suggested Sites" "Enabled"
+$s = if ($ieSuggested -eq 0 -or -not $ieInstalled) { "PASS" } else { "WARN" }
+Add-Result "58.4" "IE Suggested Sites Disabled" $s "Enabled: $ieSuggested" "CIS"
+
+# IE - prevent managing SmartScreen
+$ieSmartScreen = Get-RegValue "$ieBase\PhishingFilter" "PreventOverride"
+$s = if ($ieSmartScreen -eq 1 -or -not $ieInstalled) { "PASS" } else { "WARN" }
+Add-Result "58.5" "IE SmartScreen Override Prevented" $s "PreventOverride: $ieSmartScreen" "CIS"
+
+# IE - disable first run wizard
+$ieFirstRun = Get-RegValue "$ieBase\Main" "DisableFirstRunCustomize"
+$s = if ($ieFirstRun -eq 1 -or -not $ieInstalled) { "PASS" } else { "WARN" }
+Add-Result "58.6" "IE First Run Wizard Disabled" $s "DisableFirstRunCustomize: $ieFirstRun" "CIS"
+
+# ============================================================
+#  SECTION 59: WINDOWS EVENT FORWARDING  [CIS L2]
+# ============================================================
+Write-SectionHeader "59. WINDOWS EVENT FORWARDING" "CIS L2"
+
+# Subscription manager configured
+$wefBase = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\EventLog\EventForwarding\SubscriptionManager"
+if (Test-Path $wefBase) {
+    $subs = Get-Item $wefBase | Select-Object -ExpandProperty Property
+    $s = if ($subs.Count -gt 0) { "PASS" } else { "WARN" }
+    Add-Result "59.1" "Event Forwarding Subscription Configured" $s "Subscription entries: $($subs.Count)" "CIS-L2"
+} else {
+    Add-Result "59.1" "Event Forwarding Subscription Configured" "WARN" "No WEF subscription manager configured - events not being forwarded" "CIS-L2"
+}
+
+# WinRM service configured for event collection
+$wecssSvc = Get-Service -Name "Wecsvc" -ErrorAction SilentlyContinue
+$s = if ($wecssSvc -and $wecssSvc.Status -eq "Running") { "PASS" } else { "INFO" }
+Add-Result "59.2" "Windows Event Collector Service" $s "Wecsvc: $(if ($wecssSvc) {$wecssSvc.Status} else {'Not running - only required on collector node'})" "CIS-L2"
+
+# Channel access - Security log ACL check
+try {
+    $secLog = Get-WinEvent -ListLog Security -ErrorAction Stop
+    $s = if ($secLog.SecurityDescriptor -match "Administrators") { "PASS" } else { "WARN" }
+    Add-Result "59.3" "Security Log Access Restricted" $s "Security descriptor contains Administrators: $(if ($secLog.SecurityDescriptor -match 'Administrators') {'Yes'} else {'Not confirmed'})" "CIS-L2"
+} catch {
+    Add-Result "59.3" "Security Log Access" "WARN" "Could not query Security log descriptor" "CIS-L2"
+}
+
+# ============================================================
+#  SECTION 60: ADDITIONAL WINDOWS DEFENDER SETTINGS  [CIS L1/L2]
+# ============================================================
+Write-SectionHeader "60. ADDITIONAL WINDOWS DEFENDER SETTINGS" "CIS L1/L2"
+
+$wdBase = "HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender"
+
+# PUA (Potentially Unwanted Application) protection
+$puaProtect = Get-RegValue $wdBase "PUAProtection"
+$s = if ($puaProtect -eq 1) { "PASS" } elseif ($puaProtect -eq 2) { "WARN" } else { "FAIL" }
+Add-Result "60.1" "Defender PUA Protection Enabled" $s "PUAProtection: $(if ($null -eq $puaProtect) {'Not set (disabled)'} else {"$puaProtect (1=Block, 2=Audit)"})" "CIS"
+
+# Cloud block level
+$cloudBlockLevel = Get-RegValue "$wdBase\MpEngine" "MpCloudBlockLevel"
+$s = if ($null -ne $cloudBlockLevel -and $cloudBlockLevel -ge 2) { "PASS" } else { "WARN" }
+Add-Result "60.2" "Defender Cloud Block Level" $s "MpCloudBlockLevel: $(if ($null -eq $cloudBlockLevel) {'Default'} else {"$cloudBlockLevel (2=High, 4=High+, 6=ZeroTolerance)"})" "CIS-L2"
+
+# Cloud block timeout
+$cloudTimeout = Get-RegValue "$wdBase\MpEngine" "MpBafsExtendedTimeout"
+$s = if ($null -ne $cloudTimeout -and $cloudTimeout -ge 50) { "PASS" } else { "WARN" }
+Add-Result "60.3" "Defender Cloud Block Timeout" $s "MpBafsExtendedTimeout: $(if ($null -eq $cloudTimeout) {'Default (10s)'} else {"${cloudTimeout}s"})" "CIS-L2"
+
+# Scan removable drives
+$scanRemovable = Get-RegValue "$wdBase\Scan" "DisableRemovableDriveScanning"
+$s = if ($scanRemovable -eq 0 -or $null -eq $scanRemovable) { "PASS" } else { "FAIL" }
+Add-Result "60.4" "Defender Scans Removable Drives" $s "DisableRemovableDriveScanning: $(if ($null -eq $scanRemovable) {'Not set (scanning on)'} else {$scanRemovable})" "CIS"
+
+# Scan email
+$scanEmail = Get-RegValue "$wdBase\Scan" "DisableEmailScanning"
+$s = if ($scanEmail -eq 0 -or $null -eq $scanEmail) { "PASS" } else { "FAIL" }
+Add-Result "60.5" "Defender Email Scanning Enabled" $s "DisableEmailScanning: $(if ($null -eq $scanEmail) {'Not set (scanning on)'} else {$scanEmail})" "CIS"
+
+# Scan archive files
+$scanArchive = Get-RegValue "$wdBase\Scan" "DisableArchiveScanning"
+$s = if ($scanArchive -eq 0 -or $null -eq $scanArchive) { "PASS" } else { "WARN" }
+Add-Result "60.6" "Defender Archive Scanning Enabled" $s "DisableArchiveScanning: $(if ($null -eq $scanArchive) {'Not set (scanning on)'} else {$scanArchive})" "CIS"
+
+# Scheduled scan - daily
+try {
+    $defTask = Get-ScheduledTask -TaskName "Windows Defender Scheduled Scan" -TaskPath "\Microsoft\Windows\Windows Defender\" -ErrorAction Stop
+    $s = if ($defTask.State -eq "Ready" -or $defTask.State -eq "Running") { "PASS" } else { "WARN" }
+    Add-Result "60.7" "Defender Scheduled Scan Task Active" $s "Task state: $($defTask.State)" "CIS"
+} catch {
+    Add-Result "60.7" "Defender Scheduled Scan Task" "WARN" "Could not query scheduled scan task" "CIS"
+}
+
+# Hide exclusions - prevent non-admins seeing exclusion list
+$hideExclusions = Get-RegValue $wdBase "DisableLocalAdminMerge"
+$s = if ($hideExclusions -eq 1) { "PASS" } else { "WARN" }
+Add-Result "60.8" "Defender Local Admin Exclusion Merge Disabled" $s "DisableLocalAdminMerge: $hideExclusions (1=Central policy only)" "CIS-L2"
+
+# MpEngine threat default action - quarantine
+$threatAction = Get-RegValue "$wdBase\Threats\ThreatSeverityDefaultAction" "5"
+$s = if ($threatAction -eq 3 -or $null -eq $threatAction) { "PASS" } else { "WARN" }
+Add-Result "60.9" "Defender Severe Threats: Quarantine Action" $s "SevereThreat default action: $(if ($null -eq $threatAction) {'Default (quarantine)'} else {"$threatAction (2=Remove, 3=Quarantine, 6=Ignore)"})" "CIS-L2"
+
+# Network protection enforcement mode
+$netProtMode = Get-RegValue "$wdBase\Windows Defender Exploit Guard\Network Protection" "EnableNetworkProtection"
+$s = switch ($netProtMode) {
+    1       { "PASS" }   # Block
+    2       { "WARN" }   # Audit
+    0       { "FAIL" }   # Disabled
+    default { "WARN" }
+}
+Add-Result "60.10" "Defender Network Protection Mode" $s "EnableNetworkProtection: $(if ($null -eq $netProtMode) {'Not set'} else {"$netProtMode (1=Block, 2=Audit, 0=Off)"})" "CIS"
+
+# ============================================================
 #  CLEAN UP
 # ============================================================
 if (Test-Path $SecCfg) { Remove-Item $SecCfg -Force -ErrorAction SilentlyContinue }
@@ -2261,6 +2889,22 @@ $summaryLines = @(
     "  42.  Scheduled Tasks Security       (CIS L2)",
     "  43.  MSS Legacy Security Settings   (CIS L2)",
     "  44.  CIS L2 Network Protocol Hard.  (CIS L2)",
+    "  45.  ASR - Specific Rules           (CIS L1/L2)",
+    "  46.  System Exploit Protection      (CIS L2)",
+    "  47.  Kernel DMA Protection          (CIS L2 | CE+)",
+    "  48.  LAPS Configuration             (CIS L1 | CE3)",
+    "  49.  Network List Manager           (CIS L2)",
+    "  50.  Delivery Optimisation          (CIS L2)",
+    "  51.  NTP / Time Provider Security   (CIS L2)",
+    "  52.  Defender App Guard (WDAG)      (CIS L2)",
+    "  53.  RPC & DCOM Security            (CIS L2)",
+    "  54.  Group Policy Infrastructure    (CIS L2)",
+    "  55.  Print Security                 (CIS L1/L2)",
+    "  56.  Windows Copilot / AI Features  (CIS L2)",
+    "  57.  Sensitive File/Reg Permissions (CIS L2)",
+    "  58.  Internet Explorer / Legacy     (CIS L1)",
+    "  59.  Windows Event Forwarding       (CIS L2)",
+    "  60.  Additional Defender Settings   (CIS L1/L2)",
     "========================================================================"
 )
 
