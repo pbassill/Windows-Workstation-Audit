@@ -225,18 +225,17 @@ if ($Script:EntraJoined -and -not $Script:HybridJoined) {
     Add-CloudManaged "1.6"  "No Reversible Encryption"  "Not applicable to Entra ID cloud accounts"
 
     # Entra Password Protection (banned password list) - NCSC breach-aware model
+    # Cloud-managed: Entra ID owns password protection; local policy is not authoritative
     $eppEnabled = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\AzureADPasswordProtection" "EnableBannedPasswordCheck"
-    $s = if ($null -ne $eppEnabled -and $eppEnabled -eq 1) { "PASS" } else { "WARN" }
-    Add-Result "1.N1" "Entra Password Protection (Banned List)" $s "EnableBannedPasswordCheck: $(if ($null -eq $eppEnabled) {'Not configured via local policy - verify in Entra portal > Security > Auth Methods > Password Protection'} else {$eppEnabled})" "NCSC"
+    Add-Result "1.N1" "Entra Password Protection (Banned List)" "INFO" "CLOUD-MANAGED: EnableBannedPasswordCheck: $(if ($null -eq $eppEnabled) {'Not configured via local policy - verify in Entra portal > Security > Auth Methods > Password Protection'} else {$eppEnabled})" "NCSC"
 
     # SSPR (Self-Service Password Reset) indicator - sign of breach-driven change model
     $sspReg = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\AzureADPasswordProtection" "EnableSelfServicePasswordReset"
     Add-Result "1.N2" "Self-Service Password Reset (SSPR)" "INFO" "SSPR policy: $(if ($null -eq $sspReg) {'Not configured locally - verify in Entra portal'} else {$sspReg}) | NCSC: users should change only on suspected compromise" "NCSC"
 
-    # Local fallback length check - should not be weaker than 15 on Entra devices
+    # Local fallback length check - cloud-managed: Entra policy is primary, local is informational only
     $minLen = Get-SecEditValue "MinimumPasswordLength"
-    $s = if ([int]$minLen -ge 15) { "PASS" } elseif ([int]$minLen -ge 12) { "WARN" } else { "FAIL" }
-    Add-Result "1.7"  "Local Policy Min Length (Fallback)" $s "Local secedit: $minLen chars | NCSC: >=15 recommended. Entra policy is primary." "CIS"
+    Add-Result "1.7"  "Local Policy Min Length (Fallback)" "INFO" "CLOUD-MANAGED: Local secedit: $minLen chars | Entra policy is primary - verify password length requirements in Entra ID." "CIS"
 
 } else {
     # ---- Domain / local - check secedit directly ----
@@ -418,8 +417,12 @@ $localAdminsExcludingSelf = $localAdmins | Where-Object {
 
 $effectiveLocalCount = if ($localAdminsExcludingSelf) { @($localAdminsExcludingSelf).Count } else { 0 }
 $adminCount          = $effectiveLocalCount + ($entraAdmins | Measure-Object).Count
-$s = if ($adminCount -le 2) { "PASS" } elseif ($adminCount -le 4) { "WARN" } else { "FAIL" }
-Add-Result "4.3" "Local Admin Account Count" $s "Effective total: $adminCount (local excl. script runner: $effectiveLocalCount | Cloud/AD: $(($entraAdmins | Measure-Object).Count)) | Script runner excluded: $env:USERNAME"
+if ($Script:EntraJoined -and -not $Script:HybridJoined) {
+    Add-Result "4.3" "Local Admin Account Count" "INFO" "CLOUD-MANAGED: Effective total: $adminCount (local excl. script runner: $effectiveLocalCount | Cloud/AD: $(($entraAdmins | Measure-Object).Count)) | Script runner excluded: $env:USERNAME - Verify in Entra ID / Intune portal" "EntraID"
+} else {
+    $s = if ($adminCount -le 2) { "PASS" } elseif ($adminCount -le 4) { "WARN" } else { "FAIL" }
+    Add-Result "4.3" "Local Admin Account Count" $s "Effective total: $adminCount (local excl. script runner: $effectiveLocalCount | Cloud/AD: $(($entraAdmins | Measure-Object).Count)) | Script runner excluded: $env:USERNAME"
+}
 
 if ($Script:EntraJoined -and $entraAdmins.Count -gt 0) {
     Add-Result "4.3E" "Entra ID Admins on Device" "INFO" "Cloud admin principals: $(($entraAdmins.Name) -join ', ') - Verify via Entra ID Device Local Admins policy" "EntraID"
@@ -430,15 +433,10 @@ if ($Script:EntraJoined -and $entraAdmins.Count -gt 0) {
 # by Windows LAPS or disabled via Intune - local renaming policy may not apply.
 $adminUser = Get-LocalUser | Where-Object { $_.SID -like "S-1-5-*-500" } -ErrorAction SilentlyContinue
 if ($adminUser) {
-    if ($Script:EntraJoined -and $Script:MDMEnrolled) {
-        # LAPS manages this account - renaming is less critical when LAPS rotates the password
+    if ($Script:EntraJoined -and -not $Script:HybridJoined) {
+        # Cloud-managed: admin account is managed by Entra/Intune, report as informational
         $lapsManaged = $null -ne (Get-RegValue "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\LAPS" "BackupDirectory")
-        if ($lapsManaged) {
-            Add-Result "4.4" "Built-in Admin Account Renamed" "PASS" "Account: $($adminUser.Name) | Entra+MDM device with LAPS configured - LAPS manages this account; renaming is supplementary" "EntraID"
-        } else {
-            $s = if ($adminUser.Name -ne "Administrator") { "PASS" } else { "WARN" }
-            Add-Result "4.4" "Built-in Admin Account Renamed" $s "Account: $($adminUser.Name) | Entra+MDM device but LAPS not detected - consider enabling LAPS via Intune"
-        }
+        Add-Result "4.4" "Built-in Admin Account Renamed" "INFO" "CLOUD-MANAGED: Account: $($adminUser.Name) | $(if ($lapsManaged) {'LAPS configured - LAPS manages this account'} else {'LAPS not detected - consider enabling LAPS via Intune'}) - Verify in Entra ID / Intune portal" "EntraID"
     } else {
         $s = if ($adminUser.Name -ne "Administrator") { "PASS" } else { "WARN" }
         Add-Result "4.4" "Built-in Admin Account Renamed" $s "Account name: $($adminUser.Name)"
