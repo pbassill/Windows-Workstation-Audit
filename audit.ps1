@@ -30,7 +30,7 @@
 # ============================================================
 #  INITIALISATION
 # ============================================================
-$ScriptVersion = "4.1.0"
+$ScriptVersion = "4.2.0"
 $Timestamp     = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
 $ReportPath    = "$env:USERPROFILE\Desktop\OTY_Heavy_Industries_Audit_$Timestamp.txt"
 $SecCfg        = "$env:TEMP\oty_secedit_$Timestamp.cfg"
@@ -59,7 +59,7 @@ function Write-Banner {
         "========================================================================",
         "  OTY HEAVY INDUSTRIES - COMPREHENSIVE WINDOWS AUDIT",
         "  CIS Level 1 & 2  |  Cyber Essentials  |  Cyber Essentials Plus",
-        "  Microsoft Entra ID  |  Microsoft 365  |  Intune / MDM",
+        "  Microsoft Entra ID  |  Microsoft 365  |  Intune / MDM  |  NCSC",
         "  Version $ScriptVersion",
         "========================================================================",
         "  Hostname     : $env:COMPUTERNAME",
@@ -195,25 +195,51 @@ if ($Script:MDMEnrolled) {
 Write-Banner
 
 # ============================================================
-#  SECTION 1: PASSWORD POLICY  [CIS 1.1 | CE2]
+#  SECTION 1: PASSWORD POLICY  [CIS 1.1 | CE2 | NCSC]
+#
+#  Two frameworks are applied in parallel and reported separately:
+#
+#  CIS Benchmark (traditional): length >=14, complexity ON,
+#    max age 1-365 days, history >=24.
+#
+#  NCSC Password Guidance (modern best practice):
+#    - Length >= 15 characters (3-word passphrase = ~20 chars)
+#    - Complexity OFF (complexity + short password = predictable patterns)
+#    - No forced expiry (MaxAge = 0 or very high); only change on compromise
+#    - History still recommended to prevent reuse post-compromise
+#    - Banned-password list / breach-checking preferred over expiry
+#
+#  NCSC reference: https://www.ncsc.gov.uk/collection/passwords
+#  Where the two frameworks conflict, both results are reported so the
+#  operator can make an informed choice for their risk appetite.
 # ============================================================
-Write-SectionHeader "1. PASSWORD POLICY" "CIS 1.1 | CE2"
+Write-SectionHeader "1. PASSWORD POLICY" "CIS 1.1 | CE2 | NCSC"
 
 if ($Script:EntraJoined -and -not $Script:HybridJoined) {
-    # Pure Entra ID joined - password policy is cloud-managed
-    Add-CloudManaged "1.1" "Password History"           "Managed by Entra ID Password Protection policy"
-    Add-CloudManaged "1.2" "Maximum Password Age"       "Managed by Entra ID - default 90 days for M365"
-    Add-CloudManaged "1.3" "Minimum Password Age"       "Managed by Entra ID"
-    Add-CloudManaged "1.4" "Minimum Password Length"    "Managed by Entra ID - default 8 chars (CIS requires 14 in Entra policy)"
-    Add-CloudManaged "1.5" "Password Complexity"        "Managed by Entra ID - enforced by default"
-    Add-CloudManaged "1.6" "No Reversible Encryption"   "Not applicable to Entra ID cloud accounts"
+    # ---- Pure Entra ID joined - password policy is cloud-managed ----
+    Add-CloudManaged "1.1"  "Password History"          "Managed by Entra ID Password Protection policy"
+    Add-CloudManaged "1.2"  "Password Age / Expiry"     "NCSC: No forced expiry. Entra ID: configure 'never expire' or >=365 days"
+    Add-CloudManaged "1.3"  "Minimum Password Age"      "Managed by Entra ID"
+    Add-CloudManaged "1.4"  "Minimum Password Length"   "Entra default 8 chars. NCSC/CIS: enforce >=15 via Conditional Access or Entra policy"
+    Add-CloudManaged "1.5"  "Password Complexity"       "NCSC: Complexity unnecessary at >=15 chars. Entra enforces by default."
+    Add-CloudManaged "1.6"  "No Reversible Encryption"  "Not applicable to Entra ID cloud accounts"
 
-    # Still check local policy is not LESS restrictive (belt-and-braces)
+    # Entra Password Protection (banned password list) - NCSC breach-aware model
+    $eppEnabled = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\AzureADPasswordProtection" "EnableBannedPasswordCheck"
+    $s = if ($null -ne $eppEnabled -and $eppEnabled -eq 1) { "PASS" } else { "WARN" }
+    Add-Result "1.N1" "Entra Password Protection (Banned List)" $s "EnableBannedPasswordCheck: $(if ($null -eq $eppEnabled) {'Not configured via local policy - verify in Entra portal > Security > Auth Methods > Password Protection'} else {$eppEnabled})" "NCSC"
+
+    # SSPR (Self-Service Password Reset) indicator - sign of breach-driven change model
+    $sspReg = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\AzureADPasswordProtection" "EnableSelfServicePasswordReset"
+    Add-Result "1.N2" "Self-Service Password Reset (SSPR)" "INFO" "SSPR policy: $(if ($null -eq $sspReg) {'Not configured locally - verify in Entra portal'} else {$sspReg}) | NCSC: users should change only on suspected compromise" "NCSC"
+
+    # Local fallback length check - should not be weaker than 15 on Entra devices
     $minLen = Get-SecEditValue "MinimumPasswordLength"
-    $s = if ([int]$minLen -ge 8) { "PASS" } else { "WARN" }
-    Add-Result "1.7" "Local Policy Min Length (Fallback)" $s "Local secedit: $minLen chars (Entra policy primary)" "CIS"
+    $s = if ([int]$minLen -ge 15) { "PASS" } elseif ([int]$minLen -ge 12) { "WARN" } else { "FAIL" }
+    Add-Result "1.7"  "Local Policy Min Length (Fallback)" $s "Local secedit: $minLen chars | NCSC: >=15 recommended. Entra policy is primary." "CIS"
+
 } else {
-    # Domain / local - check secedit directly
+    # ---- Domain / local - check secedit directly ----
     $historySize = Get-SecEditValue "PasswordHistorySize"
     $maxAge      = Get-SecEditValue "MaximumPasswordAge"
     $minAge      = Get-SecEditValue "MinimumPasswordAge"
@@ -221,23 +247,71 @@ if ($Script:EntraJoined -and -not $Script:HybridJoined) {
     $complexity  = Get-SecEditValue "PasswordComplexity"
     $reversible  = Get-SecEditValue "ClearTextPassword"
 
+    # ------ PASSWORD HISTORY ------
+    # Both CIS and NCSC agree: history prevents reuse post-compromise.
     $s = if ([int]$historySize -ge 24) { "PASS" } else { "FAIL" }
-    Add-Result "1.1" "Password History" $s "Required >=24, Got: $historySize"
+    Add-Result "1.1" "Password History" $s "CIS: >=24 | NCSC: >=24 recommended. Got: $historySize"
 
-    $s = if ([int]$maxAge -le 365 -and [int]$maxAge -ge 1) { "PASS" } else { "FAIL" }
-    Add-Result "1.2" "Maximum Password Age" $s "Required 1-365 days, Got: $maxAge days"
+    # ------ MAXIMUM PASSWORD AGE ------
+    # CIS: 1-365 days. NCSC: 0 (never) or very long; forced expiry is deprecated.
+    # We report both perspectives clearly.
+    $maxAgeInt = [int]$maxAge
+    # CIS view
+    $cisPwdAge = if ($maxAgeInt -le 365 -and $maxAgeInt -ge 1) { "PASS" } else { "FAIL" }
+    # NCSC view: 0 = never expire (best), >=365 = acceptable, <365 = questionable, <90 = poor
+    $ncscPwdAge = if ($maxAgeInt -eq 0)          { "PASS" }   # Never expire - NCSC preferred
+                  elseif ($maxAgeInt -ge 365)     { "PASS" }   # Very long - acceptable
+                  elseif ($maxAgeInt -ge 180)     { "WARN" }   # Moderately long
+                  elseif ($maxAgeInt -ge 90)      { "WARN" }   # Common but NCSC deprecated
+                  else                            { "FAIL" }   # <90 days - counterproductive per NCSC
+    Add-Result "1.2.CIS"  "Maximum Password Age (CIS view)"  $cisPwdAge  "CIS requires 1-365 days. Got: $(if ($maxAgeInt -eq 0) {'0 (never)'} else {"$maxAgeInt days"})" "CIS"
+    Add-Result "1.2.NCSC" "Maximum Password Age (NCSC view)" $ncscPwdAge "NCSC: 0=Never expire (best), >=365=OK, <90=FAIL. Got: $(if ($maxAgeInt -eq 0) {'0 (never expire - NCSC preferred)'} else {"$maxAgeInt days"})" "NCSC"
 
-    $s = if ([int]$minAge -ge 1) { "PASS" } else { "FAIL" }
-    Add-Result "1.3" "Minimum Password Age" $s "Required >=1 day, Got: $minAge days"
+    # ------ MINIMUM PASSWORD AGE ------
+    # Both frameworks: >=1 day prevents rapid cycling to defeat history.
+    $s = if ([int]$minAge -ge 1) { "PASS" } else { "WARN" }
+    Add-Result "1.3" "Minimum Password Age" $s "Both CIS & NCSC: >=1 day prevents cycling. Got: $minAge days"
 
-    $s = if ([int]$minLen -ge 14) { "PASS" } else { "FAIL" }
-    Add-Result "1.4" "Minimum Password Length" $s "Required >=14 chars, Got: $minLen"
+    # ------ MINIMUM PASSWORD LENGTH ------
+    # CIS: >=14. NCSC: >=15 (passphrase model). We report the NCSC threshold as primary.
+    $minLenInt = [int]$minLen
+    $cisLen  = if ($minLenInt -ge 14) { "PASS" } else { "FAIL" }
+    $ncscLen = if ($minLenInt -ge 15) { "PASS" } elseif ($minLenInt -ge 12) { "WARN" } else { "FAIL" }
+    Add-Result "1.4.CIS"  "Minimum Password Length (CIS view)"  $cisLen  "CIS: >=14 chars. Got: $minLen" "CIS"
+    Add-Result "1.4.NCSC" "Minimum Password Length (NCSC view)" $ncscLen "NCSC: >=15 chars for passphrases (3 random words ~20 chars). Got: $minLen" "NCSC"
 
-    $s = if ($complexity -eq "1") { "PASS" } else { "FAIL" }
-    Add-Result "1.5" "Password Complexity" $s "Required: Enabled, Got: $(if ($complexity -eq '1') {'Enabled'} else {'Disabled'})"
+    # ------ COMPLEXITY ------
+    # CIS: complexity ON. NCSC: complexity OFF when length >= 15.
+    # Complexity forces short predictable passwords (P@ssw0rd pattern).
+    $cisComplex  = if ($complexity -eq "1") { "PASS" } else { "FAIL" }
+    # NCSC: complexity OFF is preferred if length >= 15; ON is acceptable but not required
+    $ncscComplex = if ($complexity -eq "0" -and $minLenInt -ge 15) { "PASS" }
+                   elseif ($complexity -eq "1")                    { "WARN" }   # On but length should carry the burden
+                   elseif ($minLenInt -lt 15)                      { "FAIL" }   # Off AND short = bad
+                   else                                             { "PASS" }
+    $complexDesc = if ($complexity -eq "1") { "Enabled" } else { "Disabled" }
+    Add-Result "1.5.CIS"  "Password Complexity (CIS view)"  $cisComplex  "CIS: complexity ON required. Got: $complexDesc" "CIS"
+    Add-Result "1.5.NCSC" "Password Complexity (NCSC view)" $ncscComplex "NCSC: complexity OFF preferred when length >=15 (avoids P@ssw0rd patterns). Got: $complexDesc, Length: $minLen chars" "NCSC"
 
+    # ------ REVERSIBLE ENCRYPTION ------
+    # Universal FAIL regardless of framework.
     $s = if ($reversible -eq "0") { "PASS" } else { "FAIL" }
-    Add-Result "1.6" "No Reversible Encryption" $s "Required: Disabled, Got: $(if ($reversible -eq '0') {'Disabled'} else {'Enabled'})"
+    Add-Result "1.6" "No Reversible Encryption" $s "Both CIS & NCSC: must be disabled. Got: $(if ($reversible -eq '0') {'Disabled'} else {'ENABLED - immediate risk'})"
+
+    # ------ NCSC: BREACH / COMPROMISE MONITORING ------
+    # NCSC recommends passwords are only changed on known compromise.
+    # Check for Entra Password Protection agent (hybrid) or HIBP-style tooling indicators.
+    $eppHybrid = Get-RegValue "HKLM:\SOFTWARE\Microsoft\AzureADPasswordProtection\AzureADPasswordProtectionProxy" "Enabled"
+    $eppDC     = Get-RegValue "HKLM:\SOFTWARE\Microsoft\AzureADPasswordProtection\AzureADPasswordProtectionDCAgent" "Enabled"
+    if ($Script:HybridJoined -or $Script:EntraJoined) {
+        $s = if ($null -ne $eppHybrid -or $null -ne $eppDC) { "PASS" } else { "WARN" }
+        Add-Result "1.N1" "NCSC: Breach-Aware Password Protection" $s "Entra Password Protection agent: $(if ($null -ne $eppHybrid -or $null -ne $eppDC) {'Detected'} else {'Not detected - verify Entra Password Protection is deployed for on-prem AD'})" "NCSC"
+    } else {
+        Add-Result "1.N1" "NCSC: Breach-Aware Password Change Model" "WARN" "NCSC recommends passwords only change on suspected compromise. Implement banned-password list / HIBP checking. No Entra Password Protection agent detected." "NCSC"
+    }
+
+    # ------ NCSC: PASSPHRASE GUIDANCE NOTE ------
+    Add-Result "1.N2" "NCSC: Passphrase Policy Guidance" "INFO" "NCSC recommends 3 random words (e.g. 'CoffeeLampBridge') over complex short passwords. Enforce length >=15, disable complexity, remove expiry. See: ncsc.gov.uk/collection/passwords" "NCSC"
 }
 
 # ============================================================
@@ -1057,6 +1131,182 @@ Add-Result "26.7" "Vulnerable Driver Blocklist Enabled" $s "VulnerableDriverBloc
 $elam = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Policies\EarlyLaunch" "DriverLoadPolicy"
 $s = if ($elam -eq 3 -or $null -eq $elam) { "PASS" } elseif ($elam -eq 1) { "WARN" } else { "FAIL" }
 Add-Result "26.8" "Early Launch Anti-Malware (ELAM)" $s "DriverLoadPolicy: $elam (3=Good+Unknown, 1=Good only, 7=All)"
+
+# ============================================================
+#  SECTION 26A: CE+ ACCOUNT SEPARATION  [CE+ | NCSC]
+#
+#  CE+ and NCSC both require that privileged (admin) accounts are
+#  separate from day-to-day user accounts. Admin accounts should:
+#    - Not be used for email, browsing, or routine work
+#    - Have a distinct username (e.g. adm-username or username-admin)
+#    - Not hold a mailbox or M365 licence
+#    - Not be the same account used to log on for daily tasks
+# ============================================================
+Write-SectionHeader "26A. CE+ / NCSC - ACCOUNT SEPARATION" "CE+ | NCSC"
+
+# Identify all local admin accounts
+$allAdmins    = Get-LocalGroupMember -Group "Administrators" -ErrorAction SilentlyContinue
+$localAdmins2 = $allAdmins | Where-Object { $_.PrincipalSource -eq "Local" }
+
+# Current interactive user SID
+$currentSID = ([System.Security.Principal.WindowsIdentity]::GetCurrent()).User.Value
+
+# Check 1: Is the currently logged-on user also a local admin?
+# If so, warn - daily-use account should not be admin (account separation)
+$currentIsAdmin = $allAdmins | Where-Object {
+    try {
+        $sid = (New-Object System.Security.Principal.NTAccount($_.Name)).Translate(
+                   [System.Security.Principal.SecurityIdentifier]).Value
+        $sid -eq $currentSID
+    } catch { $false }
+}
+$s = if (-not $currentIsAdmin) { "PASS" } else { "WARN" }
+Add-Result "26A.1" "Current User Is NOT a Local Admin" $s "User '$env:USERNAME' in Administrators: $(if ($currentIsAdmin) {'YES - daily account has admin rights (CE+ violation)'} else {'No (separate admin account in use - correct)'})" "CE+"
+
+# Check 2: Admin account naming convention indicator
+# CE+ guidance: admin accounts should have a distinct name prefix/suffix
+# We check for common conventions: adm-, admin-, -adm, -admin, svc-
+$suspectAdminNames = $localAdmins2 | Where-Object {
+    $name = $_.Name.ToLower()
+    # Flag accounts that look like regular user accounts (no admin prefix/suffix)
+    # and are not the built-in Administrator
+    try {
+        $sid = (New-Object System.Security.Principal.NTAccount($_.Name)).Translate(
+                   [System.Security.Principal.SecurityIdentifier]).Value
+        $isBuiltIn = $sid -like "S-1-5-*-500"
+    } catch { $isBuiltIn = $false }
+    -not $isBuiltIn -and
+    $name -notmatch "^adm[-_]|[-_]adm$|^admin[-_]|[-_]admin$|^svc[-_]|^sa[-_]|^priv[-_]|[-_]priv$"
+}
+$s = if ($suspectAdminNames.Count -eq 0) { "PASS" } else { "WARN" }
+Add-Result "26A.2" "Admin Accounts Use Naming Convention" $s "Accounts without admin-prefix naming: $(if ($suspectAdminNames.Count -gt 0) {($suspectAdminNames.Name) -join ', '} else {'None detected'}) - CE+: admin accounts should be clearly identified (e.g. adm-jbloggs)" "CE+"
+
+# Check 3: Standard user account count vs admin count
+# CE+: most users should be standard users; admins should be minimal
+$allLocalUsers     = Get-LocalUser -ErrorAction SilentlyContinue | Where-Object { $_.Enabled -eq $true }
+$adminSIDs         = @()
+foreach ($adm in $localAdmins2) {
+    try {
+        $adminSIDs += (New-Object System.Security.Principal.NTAccount($adm.Name)).Translate(
+                          [System.Security.Principal.SecurityIdentifier]).Value
+    } catch {}
+}
+$standardUsers = $allLocalUsers | Where-Object {
+    try {
+        $sid = $_.SID.Value
+        $sid -notin $adminSIDs -and $sid -notlike "S-1-5-*-500"
+    } catch { $true }
+}
+$adminToUserRatio = if ($standardUsers.Count -gt 0) {
+    [math]::Round($localAdmins2.Count / ($localAdmins2.Count + $standardUsers.Count) * 100, 0)
+} else { 100 }
+$s = if ($adminToUserRatio -le 20) { "PASS" } elseif ($adminToUserRatio -le 40) { "WARN" } else { "FAIL" }
+Add-Result "26A.3" "Admin-to-User Ratio Acceptable" $s "Local admins: $($localAdmins2.Count) | Standard users: $($standardUsers.Count) | Admin ratio: $adminToUserRatio% (CE+: keep admin accounts minimal)" "CE+"
+
+# Check 4: Domain / Entra admin separation indicator
+# On Entra joined devices, check if the logged-on user has a Global Admin or similar role
+# We can only infer this locally - check if user is in the Device Administrators AAD group
+if ($Script:EntraJoined) {
+    $entraAdminsOnDevice = $allAdmins | Where-Object { $_.PrincipalSource -eq "AzureAD" }
+    $s = if ($entraAdminsOnDevice.Count -le 2) { "PASS" } else { "WARN" }
+    Add-Result "26A.4" "Entra ID Admin Accounts on Device" $s "Entra/AAD admins present: $($entraAdminsOnDevice.Count) - $(($entraAdminsOnDevice.Name) -join ', ') | Verify these are dedicated admin accounts in Entra portal" "CE+"
+
+    # Check the signed-in user is not in an Entra admin role on this device
+    $currentEntraAdmin = $entraAdminsOnDevice | Where-Object { $_.Name -match $env:USERNAME }
+    $s = if (-not $currentEntraAdmin) { "PASS" } else { "WARN" }
+    Add-Result "26A.5" "Daily Entra User Not Device Admin" $s "Current user ($env:USERNAME) matches Entra admin on device: $(if ($currentEntraAdmin) {'YES - review account separation'} else {'No match detected'})" "CE+"
+}
+
+# Check 5: Privileged Access Workstation (PAW) indicator
+# PAW devices should not have regular user accounts doing daily browsing/email
+# Heuristic: check if any productivity software is installed alongside admin tools
+$officeInstalled2 = Test-Path "${env:ProgramFiles}\Microsoft Office"
+$browserInstalled = (Test-Path "${env:ProgramFiles}\Google\Chrome\Application\chrome.exe") -or
+                    (Test-Path "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe") -or
+                    (Test-Path "${env:ProgramFiles}\Mozilla Firefox\firefox.exe")
+if ($officeInstalled2 -or $browserInstalled) {
+    Add-Result "26A.6" "PAW: Productivity Software on Admin Device" "WARN" "Office present: $officeInstalled2 | 3rd-party browser present: $browserInstalled | CE+: admin workstations should not run email/browser (use PAW model)" "CE+"
+} else {
+    Add-Result "26A.6" "PAW: No Productivity Software on Admin Device" "PASS" "Office: $officeInstalled2 | 3rd-party browser: $browserInstalled | Device appears consistent with PAW model" "CE+"
+}
+
+# ============================================================
+#  SECTION 26B: CE+ / NCSC - TWO-FACTOR AUTHENTICATION (2FA/MFA)
+#
+#  CE+ requires MFA for all remote access and privileged accounts.
+#  NCSC strongly recommends MFA for all accounts where possible.
+#  Checks cover local, Entra ID, and device-level MFA indicators.
+# ============================================================
+Write-SectionHeader "26B. CE+ / NCSC - TWO-FACTOR AUTHENTICATION" "CE+ | NCSC"
+
+# Check 1: Windows Hello for Business (device-bound phishing-resistant MFA)
+$whfbPolicy   = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\PassportForWork" "Enabled"
+$whfbNGCKey   = $dsreg["NgcSet"]
+$s = if ($whfbPolicy -eq 1 -and $whfbNGCKey -eq "YES") { "PASS" }
+     elseif ($whfbPolicy -eq 1 -or $whfbNGCKey -eq "YES") { "WARN" }
+     else { "FAIL" }
+Add-Result "26B.1" "Windows Hello for Business Enabled + Enrolled" $s "WHfB policy: $whfbPolicy | NGC key registered: $whfbNGCKey | Both required for active phishing-resistant MFA" "CE+"
+
+# Check 2: WHfB requires TPM (hardware-backed - stronger than software)
+$whfbTPM = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\PassportForWork" "RequireSecurityDevice"
+$s = if ($whfbTPM -eq 1) { "PASS" } else { "WARN" }
+Add-Result "26B.2" "WHfB: TPM Required (Hardware-Backed MFA)" $s "RequireSecurityDevice: $whfbTPM | NCSC: hardware-backed credentials preferred over software" "CE+"
+
+# Check 3: FIDO2 / security key support
+$fidoPolicy = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\FIDO" "Enabled"
+$s = if ($fidoPolicy -eq 1 -or $null -eq $fidoPolicy) { "PASS" } else { "FAIL" }
+Add-Result "26B.3" "FIDO2 Security Key Support Not Blocked" $s "FIDO Enabled: $(if ($null -eq $fidoPolicy) {'Default (not blocked)'} else {$fidoPolicy}) | CE+: FIDO2 keys are phishing-resistant MFA" "CE+"
+
+# Check 4: Smart card / virtual smart card support
+$scForced = Get-RegValue "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" "ScForceOption"
+Add-Result "26B.4" "Smart Card / Certificate MFA" "INFO" "ScForceOption (force smart card logon): $scForced | $(if ($scForced -eq 1) {'Smart card required'} else {'Not forced - consider for privileged accounts'})" "CE+"
+
+# Check 5: Conditional Access MFA signal (Entra joined devices)
+if ($Script:EntraJoined) {
+    # Compliance URL present = device subject to CA compliance (which typically includes MFA)
+    $s = if ($Script:ComplianceURL -ne "") { "PASS" } else { "WARN" }
+    Add-Result "26B.5" "Conditional Access MFA Enforcement" $s "CA ComplianceUrl: $(if ($Script:ComplianceURL -ne '') {$Script:ComplianceURL} else {'Not set - device may not be subject to MFA CA policy'}) | CE+: all remote access must require MFA" "CE+"
+
+    # PRT with MFA claim (MFA was used to obtain PRT)
+    $prtMFA = $dsreg["AzureAdPrtAuthority"]
+    $s = if ($null -ne $prtMFA -and $prtMFA -ne "") { "PASS" } else { "WARN" }
+    Add-Result "26B.6" "PRT Obtained with MFA" $s "AzureAdPrtAuthority: $(if ($prtMFA) {$prtMFA} else {'Not detected - verify MFA was required for device sign-in'})" "CE+"
+
+    # Per-user MFA status cannot be read locally - inform operator
+    Add-Result "26B.7" "Entra Per-User MFA Status" "INFO" "Per-user MFA state cannot be read from the device. Verify in Entra ID portal > Users > Per-User MFA, or confirm MFA is enforced via Conditional Access for all users." "CE+"
+} else {
+    Add-Result "26B.5" "Conditional Access MFA" "WARN" "Device not Entra joined - MFA must be enforced by other means (NPS + RADIUS, VPN MFA, etc.) | CE+: all remote access must use MFA" "CE+"
+}
+
+# Check 6: NTLMv2 / legacy auth not bypassing MFA
+# If legacy auth protocols are enabled, they can bypass MFA entirely
+$legacyAuthBlock = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" "LmCompatibilityLevel"
+$s = if ($legacyAuthBlock -ge 5) { "PASS" } else { "FAIL" }
+Add-Result "26B.8" "Legacy Auth Protocols Blocked (Protects MFA)" $s "LmCompatibilityLevel: $legacyAuthBlock | Level <5 allows LM/NTLM which bypass MFA entirely. CE+: block legacy auth." "CE+"
+
+# Check 7: Authenticator app / Microsoft Authenticator indicator
+# Can only be detected if Intune/MDM has pushed the app policy
+$authAppPolicy = Get-RegValue "HKLM:\SOFTWARE\Microsoft\PolicyManager\current\device\DeviceLock" "AllowIdleReturnWithoutPassword"
+Add-Result "26B.9" "Microsoft Authenticator / Auth App" "INFO" "Authenticator app status cannot be read locally. Verify in Entra ID portal > Security > Authentication methods that Microsoft Authenticator or FIDO2 is enabled and registered for all users." "CE+"
+
+# Check 8: MFA for remote access (RDP / VPN indicator)
+$rdpEnabled2  = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server" "fDenyTSConnections"
+$nlaRequired2 = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" "UserAuthentication"
+if ($rdpEnabled2 -ne 1) {
+    # RDP is on - NLA is a pre-auth layer but not MFA on its own
+    $s = if ($nlaRequired2 -eq 1 -and ($Script:EntraJoined -and $Script:ComplianceURL -ne "")) { "PASS" }
+         elseif ($nlaRequired2 -eq 1) { "WARN" }
+         else { "FAIL" }
+    Add-Result "26B.10" "RDP: MFA or CA Required for Remote Access" $s "NLA: $nlaRequired2 | CA policy: $(if ($Script:ComplianceURL -ne '') {'Present'} else {'Not detected'}) | CE+: MFA must be required for all remote access including RDP" "CE+"
+} else {
+    Add-Result "26B.10" "RDP: Not Enabled (Remote Access MFA N/A)" "PASS" "RDP disabled - no unauthenticated remote desktop exposure" "CE+"
+}
+
+# Check 9: Verify no accounts have blank passwords (MFA is meaningless with blank passwords)
+$blankPasswd = Get-LocalUser -ErrorAction SilentlyContinue |
+    Where-Object { $_.Enabled -eq $true -and $_.PasswordRequired -eq $false }
+$s = if (-not $blankPasswd) { "PASS" } else { "FAIL" }
+Add-Result "26B.11" "No Accounts With Blank Passwords" $s "Accounts with blank/not-required passwords: $(if ($blankPasswd) {($blankPasswd.Name) -join ', '} else {'None'}) | MFA is bypassed by blank passwords" "CE+"
 
 # ============================================================
 #  SECTION 27: ENTRA ID DEVICE IDENTITY  [EntraID | CE+]
@@ -2810,12 +3060,17 @@ $infoCount     = ($Results | Where-Object { $_.Status -eq "INFO" }).Count
 $entraCount    = ($Results | Where-Object { $_.Framework -eq "EntraID" }).Count
 $cisL1Count    = ($Results | Where-Object { $_.Framework -eq "CIS" }).Count
 $cisL2Count    = ($Results | Where-Object { $_.Framework -eq "CIS-L2" }).Count
-$ceCount       = ($Results | Where-Object { $_.Framework -match "CE" }).Count
+$ceCount       = ($Results | Where-Object { $_.Framework -match "^CE" }).Count
+$ncscCount     = ($Results | Where-Object { $_.Framework -eq "NCSC" }).Count
 $scoreable     = $totalChecks - $infoCount
 $score         = if ($scoreable -gt 0) { [math]::Round(($passCount / $scoreable) * 100, 1) } else { 0 }
 $l2Score       = if ($cisL2Count -gt 0) {
     $l2Pass = ($Results | Where-Object { $_.Framework -eq "CIS-L2" -and $_.Status -eq "PASS" }).Count
     [math]::Round(($l2Pass / $cisL2Count) * 100, 1)
+} else { 0 }
+$ncscScore     = if ($ncscCount -gt 0) {
+    $ncscPass = ($Results | Where-Object { $_.Framework -eq "NCSC" -and $_.Status -eq "PASS" }).Count
+    [math]::Round(($ncscPass / $ncscCount) * 100, 1)
 } else { 0 }
 
 $summaryLines = @(
@@ -2831,11 +3086,13 @@ $summaryLines = @(
     "  -----------------------------------------------------------------------",
     "  CIS Level 1 Checks    : $cisL1Count",
     "  CIS Level 2 Checks    : $cisL2Count",
+    "  NCSC Checks           : $ncscCount",
     "  Entra/M365 Checks     : $entraCount",
     "  CE/CE+ Checks         : $ceCount",
     "  -----------------------------------------------------------------------",
     "  Overall Compliance    : $score%",
     "  CIS L2 Compliance     : $l2Score%",
+    "  NCSC Alignment        : $ncscScore%",
     "========================================================================",
     "  Device Context:",
     "  Join Type        : $joinType",
@@ -2845,66 +3102,68 @@ $summaryLines = @(
     "  Device ID        : $($Script:DeviceID)",
     "========================================================================",
     "  Sections Audited:",
-    "   1.  Password Policy                (CIS L1 | CE2 | Entra-aware)",
-    "   2.  Account Lockout                (CIS L1 | CE2 | Smart Lockout-aware)",
-    "   3.  Remote Desktop                 (CIS L1 | CE1 | CE+)",
-    "   4.  Local Accounts                 (CIS L1 | CE3 | CE+)",
-    "   5.  Windows Firewall               (CIS L1 | CE1 | CE+)",
-    "   6.  Patch Management               (CIS L1 | CE5 | CE+ | WUfB)",
-    "   7.  SMBv1 Protocol                 (CIS L1 | CE2)",
-    "   8.  AutoRun / AutoPlay             (CIS L1)",
-    "   9.  Insecure Services              (CIS L1 | CE2)",
-    "  10.  Admin Shares                   (CIS L1)",
-    "  11.  User Account Control           (CIS L1 | CE3)",
-    "  12.  Security Protocols             (CIS L1 | CE2 | NTLM-aware)",
-    "  13.  Audit Policy                   (CIS L1 17.x)",
-    "  14.  Malware Protection             (CIS L1 | CE4 | CE+)",
-    "  15.  BitLocker / Encryption         (CIS L1 | CE2 | Entra Key Backup)",
-    "  16.  Secure Boot & UEFI             (CIS L1 | CE+)",
-    "  17.  PowerShell Security            (CIS L1 | CE+)",
-    "  18.  Application Control            (CIS L1 | CE2 | CE+)",
-    "  19.  Event Log Configuration        (CIS L1 18.x)",
-    "  20.  Credential Protection          (CIS L1 | CE+ | PRT-aware)",
-    "  21.  Screen Lock / Session          (CIS L1 | CE2)",
-    "  22.  Unnecessary Features           (CE2 | CE+)",
-    "  23.  Network Security               (CIS L1 | CE1 | CE2 | IPv6-aware)",
-    "  24.  Memory & Exploit Protection    (CIS L1)",
-    "  25.  CE Secure Configuration        (CE2 | CE+)",
-    "  26.  Cyber Essentials Plus          (CE+)",
-    "  27.  Entra ID Device Identity       (EntraID | CE+)",
-    "  28.  Intune / MDM Enrolment         (EntraID | CE+)",
-    "  29.  Windows Hello for Business     (EntraID | CE+)",
-    "  30.  Defender for Endpoint (MDE)    (EntraID | CE+)",
-    "  31.  Microsoft 365 / Office Sec     (EntraID | CE+)",
-    "  32.  Conditional Access & Compliance(EntraID | CE+)",
-    "  33.  CIS L2 User Rights Assignment  (CIS L2)",
-    "  34.  CIS L2 Additional Sec Options  (CIS L2)",
-    "  35.  CIS L2 Advanced Audit Policy   (CIS L2 17.x)",
-    "  36.  TLS/SSL & Cipher Hardening     (CIS L2 | CE+)",
-    "  37.  Microsoft Edge Security        (CIS L2 | CE+)",
-    "  38.  Peripheral & Device Control    (CIS L2 | CE+)",
-    "  39.  Windows Components & Privacy   (CIS L2)",
-    "  40.  Remote Assistance & Tools      (CIS L2)",
-    "  41.  DNS Client & Name Resolution   (CIS L2)",
-    "  42.  Scheduled Tasks Security       (CIS L2)",
-    "  43.  MSS Legacy Security Settings   (CIS L2)",
-    "  44.  CIS L2 Network Protocol Hard.  (CIS L2)",
-    "  45.  ASR - Specific Rules           (CIS L1/L2)",
-    "  46.  System Exploit Protection      (CIS L2)",
-    "  47.  Kernel DMA Protection          (CIS L2 | CE+)",
-    "  48.  LAPS Configuration             (CIS L1 | CE3)",
-    "  49.  Network List Manager           (CIS L2)",
-    "  50.  Delivery Optimisation          (CIS L2)",
-    "  51.  NTP / Time Provider Security   (CIS L2)",
-    "  52.  Defender App Guard (WDAG)      (CIS L2)",
-    "  53.  RPC & DCOM Security            (CIS L2)",
-    "  54.  Group Policy Infrastructure    (CIS L2)",
-    "  55.  Print Security                 (CIS L1/L2)",
-    "  56.  Windows Copilot / AI Features  (CIS L2)",
-    "  57.  Sensitive File/Reg Permissions (CIS L2)",
-    "  58.  Internet Explorer / Legacy     (CIS L1)",
-    "  59.  Windows Event Forwarding       (CIS L2)",
-    "  60.  Additional Defender Settings   (CIS L1/L2)",
+    "   1.  Password Policy          (CIS L1 | CE2 | NCSC - dual framework)",
+    "   2.  Account Lockout          (CIS L1 | CE2 | Smart Lockout-aware)",
+    "   3.  Remote Desktop           (CIS L1 | CE1 | CE+)",
+    "   4.  Local Accounts           (CIS L1 | CE3 | CE+)",
+    "   5.  Windows Firewall         (CIS L1 | CE1 | CE+)",
+    "   6.  Patch Management         (CIS L1 | CE5 | CE+ | WUfB)",
+    "   7.  SMBv1 Protocol           (CIS L1 | CE2)",
+    "   8.  AutoRun / AutoPlay       (CIS L1)",
+    "   9.  Insecure Services        (CIS L1 | CE2)",
+    "  10.  Admin Shares             (CIS L1)",
+    "  11.  User Account Control     (CIS L1 | CE3)",
+    "  12.  Security Protocols       (CIS L1 | CE2 | NTLM-aware)",
+    "  13.  Audit Policy             (CIS L1 17.x)",
+    "  14.  Malware Protection       (CIS L1 | CE4 | CE+)",
+    "  15.  BitLocker / Encryption   (CIS L1 | CE2 | Entra Key Backup)",
+    "  16.  Secure Boot & UEFI       (CIS L1 | CE+)",
+    "  17.  PowerShell Security      (CIS L1 | CE+)",
+    "  18.  Application Control      (CIS L1 | CE2 | CE+)",
+    "  19.  Event Log Configuration  (CIS L1 18.x)",
+    "  20.  Credential Protection    (CIS L1 | CE+ | PRT-aware)",
+    "  21.  Screen Lock / Session    (CIS L1 | CE2)",
+    "  22.  Unnecessary Features     (CE2 | CE+)",
+    "  23.  Network Security         (CIS L1 | CE1 | CE2 | IPv6-aware)",
+    "  24.  Memory & Exploit Protect (CIS L1)",
+    "  25.  CE Secure Configuration  (CE2 | CE+)",
+    "  26.  Cyber Essentials Plus    (CE+)",
+    " 26A.  CE+ Account Separation   (CE+ | NCSC)",
+    " 26B.  CE+ 2FA/MFA              (CE+ | NCSC)",
+    "  27.  Entra ID Device Identity (EntraID | CE+)",
+    "  28.  Intune / MDM Enrolment   (EntraID | CE+)",
+    "  29.  Windows Hello for Bus.   (EntraID | CE+)",
+    "  30.  Defender for Endpoint    (EntraID | CE+)",
+    "  31.  Microsoft 365 / Office   (EntraID | CE+)",
+    "  32.  CA & Device Compliance   (EntraID | CE+)",
+    "  33.  CIS L2 User Rights       (CIS L2)",
+    "  34.  CIS L2 Sec Options       (CIS L2)",
+    "  35.  CIS L2 Advanced Audit    (CIS L2 17.x)",
+    "  36.  TLS/SSL & Cipher Hard.   (CIS L2 | CE+)",
+    "  37.  Microsoft Edge Security  (CIS L2 | CE+)",
+    "  38.  Peripheral & Device Ctrl (CIS L2 | CE+)",
+    "  39.  Windows Privacy Hard.    (CIS L2)",
+    "  40.  Remote Assistance        (CIS L2)",
+    "  41.  DNS Client Security      (CIS L2)",
+    "  42.  Scheduled Tasks          (CIS L2)",
+    "  43.  MSS Legacy Settings      (CIS L2)",
+    "  44.  CIS L2 Network Protocol  (CIS L2)",
+    "  45.  ASR Specific Rules       (CIS L1/L2)",
+    "  46.  System Exploit Protect   (CIS L2)",
+    "  47.  Kernel DMA Protection    (CIS L2 | CE+)",
+    "  48.  LAPS Configuration       (CIS L1 | CE3)",
+    "  49.  Network List Manager     (CIS L2)",
+    "  50.  Delivery Optimisation    (CIS L2)",
+    "  51.  NTP / Time Security      (CIS L2)",
+    "  52.  Defender App Guard       (CIS L2)",
+    "  53.  RPC & DCOM Security      (CIS L2)",
+    "  54.  Group Policy Infra.      (CIS L2)",
+    "  55.  Print Security           (CIS L1/L2)",
+    "  56.  Windows Copilot / AI     (CIS L2)",
+    "  57.  File & Reg Permissions   (CIS L2)",
+    "  58.  Internet Explorer        (CIS L1)",
+    "  59.  Windows Event Forwarding (CIS L2)",
+    "  60.  Additional Defender      (CIS L1/L2)",
     "========================================================================"
 )
 
