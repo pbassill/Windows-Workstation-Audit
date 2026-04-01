@@ -30,7 +30,7 @@
 # ============================================================
 #  INITIALISATION
 # ============================================================
-$ScriptVersion = "3.0.0"
+$ScriptVersion = "4.0.0"
 $Timestamp     = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
 $ReportPath    = "$env:USERPROFILE\Desktop\OTY_Heavy_Industries_Audit_$Timestamp.txt"
 $SecCfg        = "$env:TEMP\oty_secedit_$Timestamp.cfg"
@@ -58,7 +58,7 @@ function Write-Banner {
     $lines = @(
         "========================================================================",
         "  OTY HEAVY INDUSTRIES - COMPREHENSIVE WINDOWS AUDIT",
-        "  CIS Level 1  |  Cyber Essentials  |  Cyber Essentials Plus",
+        "  CIS Level 1 & 2  |  Cyber Essentials  |  Cyber Essentials Plus",
         "  Microsoft Entra ID  |  Microsoft 365  |  Intune / MDM",
         "  Version $ScriptVersion",
         "========================================================================",
@@ -1386,6 +1386,764 @@ if (Test-Path $caPath) {
 }
 
 # ============================================================
+#  SECTION 33: CIS L2 - USER RIGHTS ASSIGNMENT  [CIS L2]
+# ============================================================
+Write-SectionHeader "33. CIS L2 - USER RIGHTS ASSIGNMENT" "CIS L2"
+
+# Helper: get secedit user right value
+function Get-UserRight { param([string]$Right); return (Get-SecEditValue $Right) }
+
+# Access this computer from the network - L2: Administrators only
+$val = Get-UserRight "SeNetworkLogonRight"
+$s   = if ($val -and $val -notmatch "Everyone" -and $val -notmatch "Users") { "PASS" } else { "WARN" }
+Add-Result "33.1" "Network Logon: Admins Only (L2)" $s "SeNetworkLogonRight: $val" "CIS-L2"
+
+# Act as part of operating system - No one
+$val = Get-UserRight "SeTcbPrivilege"
+$s   = if ($null -eq $val -or $val -eq "") { "PASS" } else { "FAIL" }
+Add-Result "33.2" "Act as OS: No One" $s "SeTcbPrivilege: $(if ($val) {$val} else {'Not assigned (correct)'})" "CIS-L2"
+
+# Back up files and directories - Administrators only
+$val = Get-UserRight "SeBackupPrivilege"
+$s   = if ($val -match "Administrators" -and $val -notmatch "Users" -and $val -notmatch "Everyone") { "PASS" } else { "WARN" }
+Add-Result "33.3" "Backup Files: Admins Only" $s "SeBackupPrivilege: $val" "CIS-L2"
+
+# Debug programs - L2: No one (L1 allows Administrators)
+$val = Get-UserRight "SeDebugPrivilege"
+$s   = if ($null -eq $val -or $val -eq "") { "PASS" } else { "FAIL" }
+Add-Result "33.4" "Debug Programs: No One (L2)" $s "SeDebugPrivilege: $(if ($val) {$val} else {'Not assigned (correct)'})" "CIS-L2"
+
+# Enable computer and user accounts to be trusted for delegation - No one
+$val = Get-UserRight "SeEnableDelegationPrivilege"
+$s   = if ($null -eq $val -or $val -eq "") { "PASS" } else { "FAIL" }
+Add-Result "33.5" "Trusted for Delegation: No One" $s "SeEnableDelegationPrivilege: $(if ($val) {$val} else {'Not assigned (correct)'})" "CIS-L2"
+
+# Create permanent shared objects - No one
+$val = Get-UserRight "SeCreatePermanentPrivilege"
+$s   = if ($null -eq $val -or $val -eq "") { "PASS" } else { "FAIL" }
+Add-Result "33.6" "Create Permanent Shared Objects: No One" $s "SeCreatePermanentPrivilege: $(if ($val) {$val} else {'Not assigned (correct)'})" "CIS-L2"
+
+# Create symbolic links - Administrators only
+$val = Get-UserRight "SeCreateSymbolicLinkPrivilege"
+$s   = if ($val -and $val -notmatch "Users" -and $val -notmatch "Everyone") { "PASS" } else { "WARN" }
+Add-Result "33.7" "Create Symbolic Links: Admins Only" $s "SeCreateSymbolicLinkPrivilege: $val" "CIS-L2"
+
+# Create pagefile - Administrators only
+$val = Get-UserRight "SeCreatePagefilePrivilege"
+$s   = if ($val -and $val -notmatch "Users" -and $val -notmatch "Everyone") { "PASS" } else { "WARN" }
+Add-Result "33.8" "Create Pagefile: Admins Only" $s "SeCreatePagefilePrivilege: $val" "CIS-L2"
+
+# Lock pages in memory - No one
+$val = Get-UserRight "SeLockMemoryPrivilege"
+$s   = if ($null -eq $val -or $val -eq "") { "PASS" } else { "FAIL" }
+Add-Result "33.9" "Lock Pages in Memory: No One" $s "SeLockMemoryPrivilege: $(if ($val) {$val} else {'Not assigned (correct)'})" "CIS-L2"
+
+# Manage auditing and security log - Administrators only
+$val = Get-UserRight "SeSecurityPrivilege"
+$s   = if ($val -and $val -notmatch "Users" -and $val -notmatch "Everyone") { "PASS" } else { "WARN" }
+Add-Result "33.10" "Manage Audit/Security Log: Admins Only" $s "SeSecurityPrivilege: $val" "CIS-L2"
+
+# Load and unload device drivers - Administrators only
+$val = Get-UserRight "SeLoadDriverPrivilege"
+$s   = if ($val -and $val -notmatch "Users" -and $val -notmatch "Everyone") { "PASS" } else { "WARN" }
+Add-Result "33.11" "Load/Unload Device Drivers: Admins Only" $s "SeLoadDriverPrivilege: $val" "CIS-L2"
+
+# Modify firmware environment values - Administrators only
+$val = Get-UserRight "SeSystemEnvironmentPrivilege"
+$s   = if ($val -and $val -notmatch "Users" -and $val -notmatch "Everyone") { "PASS" } else { "WARN" }
+Add-Result "33.12" "Modify Firmware Values: Admins Only" $s "SeSystemEnvironmentPrivilege: $val" "CIS-L2"
+
+# Perform volume maintenance tasks - Administrators only
+$val = Get-UserRight "SeManageVolumePrivilege"
+$s   = if ($val -and $val -notmatch "Users" -and $val -notmatch "Everyone") { "PASS" } else { "WARN" }
+Add-Result "33.13" "Volume Maintenance Tasks: Admins Only" $s "SeManageVolumePrivilege: $val" "CIS-L2"
+
+# Profile single process - Administrators only
+$val = Get-UserRight "SeProfileSingleProcessPrivilege"
+$s   = if ($val -and $val -notmatch "Users" -and $val -notmatch "Everyone") { "PASS" } else { "WARN" }
+Add-Result "33.14" "Profile Single Process: Admins Only" $s "SeProfileSingleProcessPrivilege: $val" "CIS-L2"
+
+# Restore files and directories - Administrators only
+$val = Get-UserRight "SeRestorePrivilege"
+$s   = if ($val -and $val -notmatch "Users" -and $val -notmatch "Everyone") { "PASS" } else { "WARN" }
+Add-Result "33.15" "Restore Files: Admins Only" $s "SeRestorePrivilege: $val" "CIS-L2"
+
+# Take ownership - Administrators only
+$val = Get-UserRight "SeTakeOwnershipPrivilege"
+$s   = if ($val -and $val -notmatch "Users" -and $val -notmatch "Everyone") { "PASS" } else { "WARN" }
+Add-Result "33.16" "Take Ownership: Admins Only" $s "SeTakeOwnershipPrivilege: $val" "CIS-L2"
+
+# Force shutdown from remote system - Administrators only
+$val = Get-UserRight "SeRemoteShutdownPrivilege"
+$s   = if ($val -and $val -notmatch "Users" -and $val -notmatch "Everyone") { "PASS" } else { "WARN" }
+Add-Result "33.17" "Remote Shutdown: Admins Only" $s "SeRemoteShutdownPrivilege: $val" "CIS-L2"
+
+# Generate security audits - LOCAL SERVICE, NETWORK SERVICE only
+$val = Get-UserRight "SeAuditPrivilege"
+$s   = if ($val -and $val -notmatch "Administrators" -and $val -notmatch "Users") { "PASS" } else { "WARN" }
+Add-Result "33.18" "Generate Security Audits: Svc Accounts Only" $s "SeAuditPrivilege: $val" "CIS-L2"
+
+# ============================================================
+#  SECTION 34: CIS L2 - ADDITIONAL SECURITY OPTIONS  [CIS L2]
+# ============================================================
+Write-SectionHeader "34. CIS L2 - ADDITIONAL SECURITY OPTIONS" "CIS L2"
+
+# Devices: Allowed to format and eject removable media - Administrators
+$fmtMedia = Get-RegValue "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" "AllocateDASD"
+$s = if ($fmtMedia -eq "0") { "PASS" } else { "WARN" }
+Add-Result "34.1" "Format Removable Media: Admins Only" $s "AllocateDASD: $(if ($null -eq $fmtMedia) {'Not set'} else {$fmtMedia}) (0=Admins only)" "CIS-L2"
+
+# Devices: Prevent users from installing printer drivers
+$noPrinterDriver = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\Print\Providers\LanMan Print Services\Servers" "AddPrinterDrivers"
+$s = if ($noPrinterDriver -eq 1) { "PASS" } else { "WARN" }
+Add-Result "34.2" "Prevent Non-Admin Printer Driver Install" $s "AddPrinterDrivers: $noPrinterDriver (1=Admins only)" "CIS-L2"
+
+# Interactive logon: Smart card removal behavior - Lock Workstation (1)
+$scRemoval = Get-RegValue "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" "ScRemoveOption"
+$s = if ($scRemoval -eq "1" -or $scRemoval -eq "2" -or $scRemoval -eq "3") { "PASS" } else { "WARN" }
+Add-Result "34.3" "Smart Card Removal: Lock Workstation" $s "ScRemoveOption: $scRemoval (1=Lock, 2=Force logoff, 3=Disconnect RDS)" "CIS-L2"
+
+# Interactive logon: Prompt to change password before expiration - 14 days
+$pwdWarn = Get-RegValue "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" "PasswordExpiryWarning"
+$s = if ($null -ne $pwdWarn -and [int]$pwdWarn -ge 14) { "PASS" } else { "WARN" }
+Add-Result "34.4" "Password Expiry Warning >= 14 Days" $s "PasswordExpiryWarning: $(if ($null -eq $pwdWarn) {'Not set (default 5)'} else {$pwdWarn})" "CIS-L2"
+
+# Domain member: Digitally encrypt or sign secure channel data (always)
+$scEncAlways = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\Netlogon\Parameters" "RequireSignOrSeal"
+$s = if ($scEncAlways -eq 1) { "PASS" } else { "FAIL" }
+Add-Result "34.5" "Secure Channel: Always Sign or Encrypt" $s "RequireSignOrSeal: $scEncAlways" "CIS-L2"
+
+# Domain member: Digitally encrypt secure channel data when possible
+$scEnc = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\Netlogon\Parameters" "SealSecureChannel"
+$s = if ($scEnc -eq 1) { "PASS" } else { "WARN" }
+Add-Result "34.6" "Secure Channel: Encrypt When Possible" $s "SealSecureChannel: $scEnc" "CIS-L2"
+
+# Domain member: Digitally sign secure channel data when possible
+$scSign = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\Netlogon\Parameters" "SignSecureChannel"
+$s = if ($scSign -eq 1) { "PASS" } else { "WARN" }
+Add-Result "34.7" "Secure Channel: Sign When Possible" $s "SignSecureChannel: $scSign" "CIS-L2"
+
+# Domain member: Maximum machine account password age - <= 30 days
+$machPwdAge = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\Netlogon\Parameters" "MaximumPasswordAge"
+$s = if ($null -eq $machPwdAge -or ([int]$machPwdAge -le 30 -and [int]$machPwdAge -ge 1)) { "PASS" } else { "WARN" }
+Add-Result "34.8" "Machine Account Password Age <= 30 Days" $s "MaximumPasswordAge: $(if ($null -eq $machPwdAge) {'Default (30)'} else {$machPwdAge})" "CIS-L2"
+
+# Domain member: Require strong session key
+$strongKey = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\Netlogon\Parameters" "RequireStrongKey"
+$s = if ($strongKey -eq 1) { "PASS" } else { "FAIL" }
+Add-Result "34.9" "Domain Member: Require Strong Session Key" $s "RequireStrongKey: $strongKey" "CIS-L2"
+
+# Network access: Allow anonymous SID/Name translation - Disabled
+$anonSID = Get-SecEditValue "LSAAnonymousNameLookup"
+$s = if ($anonSID -eq "0") { "PASS" } else { "FAIL" }
+Add-Result "34.10" "No Anonymous SID/Name Translation" $s "LSAAnonymousNameLookup: $(if ($null -eq $anonSID) {'Not set'} else {$anonSID}) (0=Disabled)" "CIS-L2"
+
+# Network access: Do not allow storage of passwords and credentials
+$noCredStore = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" "DisableDomainCreds"
+$s = if ($noCredStore -eq 1) { "PASS" } else { "WARN" }
+Add-Result "34.11" "No Storage of Network Passwords" $s "DisableDomainCreds: $noCredStore" "CIS-L2"
+
+# Network access: Let Everyone permissions apply to anonymous users - Disabled
+$everyoneAnon = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" "EveryoneIncludesAnonymous"
+$s = if ($everyoneAnon -eq 0 -or $null -eq $everyoneAnon) { "PASS" } else { "FAIL" }
+Add-Result "34.12" "Everyone Does Not Include Anonymous" $s "EveryoneIncludesAnonymous: $(if ($null -eq $everyoneAnon) {'Default (0)'} else {$everyoneAnon})" "CIS-L2"
+
+# Network security: Allow LocalSystem NULL session fallback - Disabled
+$nullSession = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\MSV1_0" "allownullsessionfallback"
+$s = if ($nullSession -eq 0 -or $null -eq $nullSession) { "PASS" } else { "FAIL" }
+Add-Result "34.13" "No LocalSystem NULL Session Fallback" $s "allownullsessionfallback: $(if ($null -eq $nullSession) {'Default (0)'} else {$nullSession})" "CIS-L2"
+
+# Network security: Allow PKU2U authentication requests - Disabled
+$pku2u = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\pku2u" "AllowOnlineID"
+$s = if ($pku2u -eq 0 -or $null -eq $pku2u) { "PASS" } else { "FAIL" }
+Add-Result "34.14" "PKU2U Authentication Disabled" $s "AllowOnlineID: $(if ($null -eq $pku2u) {'Default (0)'} else {$pku2u})" "CIS-L2"
+
+# Network security: Do not store LAN Manager hash
+$noLMHash = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" "NoLMHash"
+$s = if ($noLMHash -eq 1) { "PASS" } else { "FAIL" }
+Add-Result "34.15" "Do Not Store LAN Manager Hash" $s "NoLMHash: $noLMHash" "CIS-L2"
+
+# Network security: Kerberos encryption types
+$kerbEnc = Get-RegValue "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\Kerberos\Parameters" "SupportedEncryptionTypes"
+$s = if ($kerbEnc -eq 2147483640 -or $kerbEnc -ge 24) { "PASS" } else { "WARN" }
+Add-Result "34.16" "Kerberos: Strong Encryption Types Only" $s "SupportedEncryptionTypes: $kerbEnc (2147483640=AES+Future, 24=AES128+AES256)" "CIS-L2"
+
+# Shutdown: Allow shutdown without logon - Disabled
+$shutdownNoLogon = Get-RegValue "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" "ShutdownWithoutLogon"
+$s = if ($shutdownNoLogon -eq 0) { "PASS" } else { "FAIL" }
+Add-Result "34.17" "Shutdown Without Logon Disabled" $s "ShutdownWithoutLogon: $shutdownNoLogon" "CIS-L2"
+
+# System objects: Strengthen default permissions
+$strengthenPerms = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager" "ProtectionMode"
+$s = if ($strengthenPerms -eq 1) { "PASS" } else { "FAIL" }
+Add-Result "34.18" "Strengthen Default Object Permissions" $s "ProtectionMode: $strengthenPerms" "CIS-L2"
+
+# System settings: Optional subsystems - none (POSIX disabled)
+$optSubsys = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\SubSystems" "Optional"
+$s = if ($null -eq $optSubsys -or $optSubsys -eq "") { "PASS" } else { "FAIL" }
+Add-Result "34.19" "No Optional Subsystems (POSIX Disabled)" $s "Optional subsystems: $(if ($null -eq $optSubsys -or $optSubsys -eq '') {'None (correct)'} else {$optSubsys})" "CIS-L2"
+
+# Audit: Force audit policy subcategory settings to override
+$forceAudit = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" "SCENoApplyLegacyAuditPolicy"
+$s = if ($forceAudit -eq 1) { "PASS" } else { "FAIL" }
+Add-Result "34.20" "Audit: Subcategory Settings Override Legacy" $s "SCENoApplyLegacyAuditPolicy: $forceAudit" "CIS-L2"
+
+# Audit: Crash on audit failure (CrashOnAuditFail) - L2: 1 = Shutdown if unable to log
+# Note: Value 2 shuts down immediately which is L2 strict. 1 is safer for production.
+$crashAudit = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" "CrashOnAuditFail"
+$s = if ($crashAudit -eq 1) { "PASS" } elseif ($null -eq $crashAudit -or $crashAudit -eq 0) { "WARN" } else { "FAIL" }
+Add-Result "34.21" "Audit: Crash If Unable to Log (CrashOnAuditFail)" $s "CrashOnAuditFail: $crashAudit (0=No action, 1=Halt, 2=Immediate halt)" "CIS-L2"
+
+# UAC: Switch to secure desktop when prompting for elevation (already in §11 but L2 is stricter)
+$uacSD = Get-RegValue "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" "PromptOnSecureDesktop"
+$s = if ($uacSD -eq 1) { "PASS" } else { "FAIL" }
+Add-Result "34.22" "UAC: Elevation Always on Secure Desktop" $s "PromptOnSecureDesktop: $uacSD" "CIS-L2"
+
+# ============================================================
+#  SECTION 35: CIS L2 - ADVANCED AUDIT POLICY  [CIS L2 17.x]
+# ============================================================
+Write-SectionHeader "35. CIS L2 - ADVANCED AUDIT POLICY" "CIS L2 17.x"
+
+$l2AuditChecks = @(
+    @{ ID = "35.1";  Sub = "Plug and Play Events";                Exp = "Success" }
+    @{ ID = "35.2";  Sub = "Token Right Adjusted Events";         Exp = "Success" }
+    @{ ID = "35.3";  Sub = "Detailed File Share";                 Exp = "Failure" }
+    @{ ID = "35.4";  Sub = "Removable Storage";                   Exp = "Success and Failure" }
+    @{ ID = "35.5";  Sub = "Central Access Policy Staging";       Exp = "Failure" }
+    @{ ID = "35.6";  Sub = "Audit Policy Change";                 Exp = "Success and Failure" }
+    @{ ID = "35.7";  Sub = "MPSSVC Rule-Level Policy Change";     Exp = "Success and Failure" }
+    @{ ID = "35.8";  Sub = "Other Policy Change Events";          Exp = "Failure" }
+    @{ ID = "35.9";  Sub = "Distribution Group Management";       Exp = "Success and Failure" }
+    @{ ID = "35.10"; Sub = "Other Account Management Events";     Exp = "Success and Failure" }
+    @{ ID = "35.11"; Sub = "Application Group Management";        Exp = "Success and Failure" }
+    @{ ID = "35.12"; Sub = "Computer Account Management";         Exp = "Success and Failure" }
+    @{ ID = "35.13"; Sub = "User Account Management";             Exp = "Success and Failure" }
+    @{ ID = "35.14"; Sub = "Process Termination";                 Exp = "Success" }
+    @{ ID = "35.15"; Sub = "DPAPI Activity";                      Exp = "Success and Failure" }
+    @{ ID = "35.16"; Sub = "RPC Events";                          Exp = "Success and Failure" }
+    @{ ID = "35.17"; Sub = "Logoff";                              Exp = "Success" }
+    @{ ID = "35.18"; Sub = "Account Lockout";                     Exp = "Success and Failure" }
+    @{ ID = "35.19"; Sub = "Network Policy Server";               Exp = "Success and Failure" }
+    @{ ID = "35.20"; Sub = "Other Logon/Logoff Events";           Exp = "Success and Failure" }
+    @{ ID = "35.21"; Sub = "IPsec Extended Mode";                 Exp = "Failure" }
+    @{ ID = "35.22"; Sub = "IPsec Main Mode";                     Exp = "Failure" }
+    @{ ID = "35.23"; Sub = "IPsec Quick Mode";                    Exp = "Failure" }
+    @{ ID = "35.24"; Sub = "Kerberos Service Ticket Operations";  Exp = "Success and Failure" }
+    @{ ID = "35.25"; Sub = "Other Account Logon Events";          Exp = "Success and Failure" }
+)
+
+foreach ($chk in $l2AuditChecks) {
+    $val = Get-AuditpolValue $chk.Sub
+    if ($val) {
+        $ok = switch ($chk.Exp) {
+            "Success and Failure" { $val -match "Success and Failure" }
+            "Success"             { $val -match "Success" }
+            "Failure"             { $val -match "Failure" }
+            default               { $false }
+        }
+        $s = if ($ok) { "PASS" } else { "FAIL" }
+        Add-Result $chk.ID "L2 Audit: $($chk.Sub)" $s "Required: $($chk.Exp), Got: $val" "CIS-L2"
+    } else {
+        Add-Result $chk.ID "L2 Audit: $($chk.Sub)" "WARN" "Required: $($chk.Exp), Could not retrieve" "CIS-L2"
+    }
+}
+
+# ============================================================
+#  SECTION 36: TLS/SSL & CIPHER SUITE HARDENING  [CIS L2 | CE+]
+# ============================================================
+Write-SectionHeader "36. TLS/SSL & CIPHER SUITE HARDENING" "CIS L2 | CE+"
+
+$scBase = "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL"
+
+# Protocols to check disabled
+$disableProtocols = @(
+    @{ Name = "SSL 2.0"; Path = "$scBase\Protocols\SSL 2.0\Client" }
+    @{ Name = "SSL 2.0"; Path = "$scBase\Protocols\SSL 2.0\Server" }
+    @{ Name = "SSL 3.0"; Path = "$scBase\Protocols\SSL 3.0\Client" }
+    @{ Name = "SSL 3.0"; Path = "$scBase\Protocols\SSL 3.0\Server" }
+    @{ Name = "TLS 1.0"; Path = "$scBase\Protocols\TLS 1.0\Client" }
+    @{ Name = "TLS 1.0"; Path = "$scBase\Protocols\TLS 1.0\Server" }
+    @{ Name = "TLS 1.1"; Path = "$scBase\Protocols\TLS 1.1\Client" }
+    @{ Name = "TLS 1.1"; Path = "$scBase\Protocols\TLS 1.1\Server" }
+)
+
+foreach ($proto in $disableProtocols) {
+    $enabled   = Get-RegValue $proto.Path "Enabled"
+    $disabled  = Get-RegValue $proto.Path "DisabledByDefault"
+    $role      = if ($proto.Path -match "Client") { "Client" } else { "Server" }
+    $isDisabled = ($enabled -eq 0) -or ($disabled -eq 1)
+    $s = if ($isDisabled) { "PASS" } else { "FAIL" }
+    Add-Result "36.P" "$($proto.Name) $role Disabled" $s "Enabled: $enabled, DisabledByDefault: $disabled" "CIS-L2"
+}
+
+# TLS 1.2 must be enabled
+foreach ($role in @("Client","Server")) {
+    $enabled = Get-RegValue "$scBase\Protocols\TLS 1.2\$role" "Enabled"
+    $s = if ($enabled -eq 1 -or $null -eq $enabled) { "PASS" } else { "FAIL" }
+    Add-Result "36.T12" "TLS 1.2 $role Enabled" $s "Enabled: $(if ($null -eq $enabled) {'Default (on)'} else {$enabled})" "CIS-L2"
+}
+
+# TLS 1.3 (Windows 11 / Server 2022+)
+foreach ($role in @("Client","Server")) {
+    $enabled = Get-RegValue "$scBase\Protocols\TLS 1.3\$role" "Enabled"
+    $s = if ($enabled -eq 1 -or $null -eq $enabled) { "PASS" } else { "WARN" }
+    Add-Result "36.T13" "TLS 1.3 $role Supported" $s "Enabled: $(if ($null -eq $enabled) {'Default'} else {$enabled})" "CIS-L2"
+}
+
+# Weak ciphers to verify disabled
+$weakCiphers = @(
+    @{ Name = "NULL";     Path = "$scBase\Ciphers\NULL" }
+    @{ Name = "DES 56";   Path = "$scBase\Ciphers\DES 56/56" }
+    @{ Name = "RC2 40";   Path = "$scBase\Ciphers\RC2 40/128" }
+    @{ Name = "RC2 56";   Path = "$scBase\Ciphers\RC2 56/128" }
+    @{ Name = "RC4 40";   Path = "$scBase\Ciphers\RC4 40/128" }
+    @{ Name = "RC4 56";   Path = "$scBase\Ciphers\RC4 56/128" }
+    @{ Name = "RC4 64";   Path = "$scBase\Ciphers\RC4 64/128" }
+    @{ Name = "RC4 128";  Path = "$scBase\Ciphers\RC4 128/128" }
+    @{ Name = "3DES 168"; Path = "$scBase\Ciphers\Triple DES 168" }
+)
+
+foreach ($cipher in $weakCiphers) {
+    $enabled = Get-RegValue $cipher.Path "Enabled"
+    $s = if ($enabled -eq 0 -or $null -eq $enabled) { "PASS" } else { "FAIL" }
+    Add-Result "36.C" "Weak Cipher Disabled: $($cipher.Name)" $s "Enabled: $(if ($null -eq $enabled) {'Not set (check OS defaults)'} else {$enabled})" "CIS-L2"
+}
+
+# Strong ciphers should be enabled
+$strongCiphers = @(
+    @{ Name = "AES 128/128"; Path = "$scBase\Ciphers\AES 128/128" }
+    @{ Name = "AES 256/256"; Path = "$scBase\Ciphers\AES 256/256" }
+)
+
+foreach ($cipher in $strongCiphers) {
+    $enabled = Get-RegValue $cipher.Path "Enabled"
+    $s = if ($enabled -eq 4294967295 -or $null -eq $enabled) { "PASS" } else { "WARN" }
+    Add-Result "36.CA" "Strong Cipher Enabled: $($cipher.Name)" $s "Enabled: $(if ($null -eq $enabled) {'Default (on)'} else {$enabled})" "CIS-L2"
+}
+
+# Hash algorithms - MD5 should be disabled
+$md5Hash = Get-RegValue "$scBase\Hashes\MD5" "Enabled"
+$s = if ($md5Hash -eq 0) { "PASS" } else { "WARN" }
+Add-Result "36.H" "MD5 Hash Algorithm Disabled" $s "Enabled: $(if ($null -eq $md5Hash) {'Not explicitly set - check via IIS Crypto'} else {$md5Hash})" "CIS-L2"
+
+# Key exchange: Diffie-Hellman minimum key size
+$dhMin = Get-RegValue "$scBase\KeyExchangeAlgorithms\Diffie-Hellman" "ClientMinKeyBitLength"
+$s = if ($dhMin -ge 2048 -or $null -eq $dhMin) { "PASS" } else { "FAIL" }
+Add-Result "36.KE" "DH Key Exchange Minimum 2048-bit" $s "ClientMinKeyBitLength: $(if ($null -eq $dhMin) {'Not set (check Group Policy)'} else {$dhMin})" "CIS-L2"
+
+# ============================================================
+#  SECTION 37: MICROSOFT EDGE SECURITY  [CIS L2 | CE+]
+# ============================================================
+Write-SectionHeader "37. MICROSOFT EDGE SECURITY" "CIS L2 | CE+"
+
+$edgeBase = "HKLM:\SOFTWARE\Policies\Microsoft\Edge"
+$edgeInstalled = Test-Path $edgeBase
+
+if ($edgeInstalled -or (Test-Path "HKLM:\SOFTWARE\Microsoft\Edge")) {
+    Add-Result "37.0" "Microsoft Edge Installed" "INFO" "Edge policy path exists" "CIS-L2"
+
+    # SmartScreen
+    $smartScreen = Get-RegValue $edgeBase "SmartScreenEnabled"
+    $s = if ($smartScreen -eq 1 -or $null -eq $smartScreen) { "PASS" } else { "FAIL" }
+    Add-Result "37.1" "Edge SmartScreen Enabled" $s "SmartScreenEnabled: $(if ($null -eq $smartScreen) {'Default (on)'} else {$smartScreen})" "CIS-L2"
+
+    # SmartScreen for downloads
+    $smartScreenDL = Get-RegValue $edgeBase "SmartScreenForTrustedDownloadsEnabled"
+    $s = if ($smartScreenDL -ne 0) { "PASS" } else { "FAIL" }
+    Add-Result "37.2" "Edge SmartScreen for Downloads" $s "SmartScreenForTrustedDownloadsEnabled: $smartScreenDL" "CIS-L2"
+
+    # Block potentially unwanted apps
+    $pua = Get-RegValue $edgeBase "PreventSmartScreenPromptOverrideForFiles"
+    $s = if ($pua -eq 1) { "PASS" } else { "WARN" }
+    Add-Result "37.3" "Edge Block PUA Downloads" $s "PreventSmartScreenPromptOverrideForFiles: $pua" "CIS-L2"
+
+    # Site isolation
+    $siteIsolation = Get-RegValue $edgeBase "SitePerProcess"
+    $s = if ($siteIsolation -eq 1 -or $null -eq $siteIsolation) { "PASS" } else { "FAIL" }
+    Add-Result "37.4" "Edge Site Isolation (Per-Process)" $s "SitePerProcess: $(if ($null -eq $siteIsolation) {'Default (on)'} else {$siteIsolation})" "CIS-L2"
+
+    # Password manager
+    $pwdMgr = Get-RegValue $edgeBase "PasswordManagerEnabled"
+    $s = if ($pwdMgr -eq 0) { "PASS" } else { "WARN" }
+    Add-Result "37.5" "Edge Built-in Password Manager Disabled" $s "PasswordManagerEnabled: $(if ($null -eq $pwdMgr) {'Default (enabled) - consider dedicated PAM'} else {$pwdMgr})" "CIS-L2"
+
+    # Search suggestions - privacy
+    $searchSugg = Get-RegValue $edgeBase "SearchSuggestEnabled"
+    $s = if ($searchSugg -eq 0) { "PASS" } else { "WARN" }
+    Add-Result "37.6" "Edge Search Suggestions Disabled" $s "SearchSuggestEnabled: $(if ($null -eq $searchSugg) {'Default (on)'} else {$searchSugg})" "CIS-L2"
+
+    # Allow InPrivate mode
+    $inPrivate = Get-RegValue $edgeBase "InPrivateModeAvailability"
+    $s = if ($null -eq $inPrivate -or $inPrivate -eq 0) { "PASS" } else { "WARN" }
+    Add-Result "37.7" "Edge InPrivate Mode Not Forced/Blocked" $s "InPrivateModeAvailability: $(if ($null -eq $inPrivate) {'Default'} else {$inPrivate}) (1=Disabled, 2=Forced)" "CIS-L2"
+
+    # Prevent bypassing SmartScreen warnings
+    $noBypass = Get-RegValue $edgeBase "PreventSmartScreenPromptOverride"
+    $s = if ($noBypass -eq 1) { "PASS" } else { "WARN" }
+    Add-Result "37.8" "Edge: Prevent SmartScreen Bypass" $s "PreventSmartScreenPromptOverride: $noBypass" "CIS-L2"
+
+    # Extension installation - allow/block
+    $extBlocked = Get-RegValue "$edgeBase\ExtensionInstallBlocklist" "1"
+    $s = if ($extBlocked -eq "*") { "PASS" } else { "WARN" }
+    Add-Result "37.9" "Edge Extension Install Blocklist Set" $s "ExtensionInstallBlocklist: $(if ($extBlocked -eq '*') {'All blocked (allowlist model)'} else {'Not set - all extensions permitted'})" "CIS-L2"
+
+    # Send intranet traffic to IE mode (should be disabled)
+    $ieMode = Get-RegValue $edgeBase "SendIntranetToInternetExplorer"
+    $s = if ($ieMode -ne 1) { "PASS" } else { "WARN" }
+    Add-Result "37.10" "Edge: Intranet Not Sent to IE Mode" $s "SendIntranetToInternetExplorer: $ieMode" "CIS-L2"
+
+    # DNS-over-HTTPS in Edge
+    $edgeDOH = Get-RegValue $edgeBase "DnsOverHttpsMode"
+    $s = if ($edgeDOH -eq "secure") { "PASS" } else { "WARN" }
+    Add-Result "37.11" "Edge: DNS over HTTPS Mode" $s "DnsOverHttpsMode: $(if ($null -eq $edgeDOH) {'Not configured'} else {$edgeDOH}) (recommend: secure)" "CIS-L2"
+
+    # Enhanced security mode (super duper secure mode)
+    $esmMode = Get-RegValue $edgeBase "EnhanceSecurityMode"
+    $s = if ($null -ne $esmMode -and $esmMode -ge 1) { "PASS" } else { "WARN" }
+    Add-Result "37.12" "Edge: Enhanced Security Mode" $s "EnhanceSecurityMode: $esmMode (1=Balanced, 2=Strict)" "CIS-L2"
+
+} else {
+    Add-Result "37.0" "Microsoft Edge" "INFO" "Edge policy registry path not found - Edge may be unmanaged" "CIS-L2"
+}
+
+# ============================================================
+#  SECTION 38: PERIPHERAL & DEVICE CONTROL  [CIS L2 | CE+]
+# ============================================================
+Write-SectionHeader "38. PERIPHERAL & DEVICE CONTROL" "CIS L2 | CE+"
+
+# Removable storage - deny all read/write access
+$usbReadDeny  = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\RemovableStorageDevices\{53f5630d-b6bf-11d0-94f2-00a0c91efb8b}" "Deny_Read"
+$usbWriteDeny = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\RemovableStorageDevices\{53f5630d-b6bf-11d0-94f2-00a0c91efb8b}" "Deny_Write"
+$s = if ($usbWriteDeny -eq 1) { "PASS" } else { "WARN" }
+Add-Result "38.1" "USB Removable Storage Write Access" $s "Deny_Write: $usbWriteDeny (1=Blocked)" "CIS-L2"
+
+$s = if ($usbReadDeny -eq 1) { "WARN" } else { "INFO" }
+Add-Result "38.2" "USB Removable Storage Read Access" $s "Deny_Read: $usbReadDeny - L2: Block writes minimum; read-block may impact operations" "CIS-L2"
+
+# All removable storage classes - execute deny
+$execDeny = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\RemovableStorageDevices" "Deny_Execute"
+$s = if ($execDeny -eq 1) { "PASS" } else { "FAIL" }
+Add-Result "38.3" "Removable Storage Execute Denied" $s "Deny_Execute: $execDeny" "CIS-L2"
+
+# Prevent installation of removable devices
+$preventRemovable = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DeviceInstall\Restrictions" "DenyRemovableDevices"
+$s = if ($preventRemovable -eq 1) { "PASS" } else { "WARN" }
+Add-Result "38.4" "Prevent Removable Device Installation" $s "DenyRemovableDevices: $preventRemovable" "CIS-L2"
+
+# Bluetooth - discoverable
+$btDiscoverable = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Bluetooth" "AllowDiscoverableMode"
+$s = if ($btDiscoverable -eq 0) { "PASS" } else { "WARN" }
+Add-Result "38.5" "Bluetooth Not Discoverable" $s "AllowDiscoverableMode: $btDiscoverable" "CIS-L2"
+
+# Bluetooth advertising
+$btAdvert = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Bluetooth" "AllowAdvertising"
+$s = if ($btAdvert -eq 0) { "PASS" } else { "WARN" }
+Add-Result "38.6" "Bluetooth Advertising Disabled" $s "AllowAdvertising: $btAdvert" "CIS-L2"
+
+# Windows Portable Devices (WPD) - write
+$wpdWrite = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\RemovableStorageDevices\{6AC27878-A6FA-4155-BA85-F98F491D4F33}" "Deny_Write"
+$s = if ($wpdWrite -eq 1) { "PASS" } else { "WARN" }
+Add-Result "38.7" "Windows Portable Devices Write Denied" $s "WPD Deny_Write: $wpdWrite" "CIS-L2"
+
+# Infrared (IrDA) - should be absent or disabled
+$irSvc = Get-Service -Name "irmon" -ErrorAction SilentlyContinue
+$s = if ($null -eq $irSvc) { "PASS" } else { "WARN" }
+Add-Result "38.8" "Infrared (IrDA) Service Absent" $s "irmon service: $(if ($irSvc) {$irSvc.Status} else {'Not installed'})" "CIS-L2"
+
+# ============================================================
+#  SECTION 39: WINDOWS COMPONENTS & PRIVACY HARDENING  [CIS L2]
+# ============================================================
+Write-SectionHeader "39. WINDOWS COMPONENTS & PRIVACY HARDENING" "CIS L2"
+
+# Telemetry / Diagnostic data - limit collection
+$telemetry = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection" "AllowTelemetry"
+$s = if ($null -ne $telemetry -and $telemetry -le 1) { "PASS" } else { "WARN" }
+Add-Result "39.1" "Telemetry Level Limited (0=Off, 1=Security)" $s "AllowTelemetry: $(if ($null -eq $telemetry) {'Not set (default 3)'} else {$telemetry})" "CIS-L2"
+
+# Disable Microsoft consumer experiences
+$consumerExp = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CloudContent" "DisableWindowsConsumerFeatures"
+$s = if ($consumerExp -eq 1) { "PASS" } else { "WARN" }
+Add-Result "39.2" "Microsoft Consumer Experiences Disabled" $s "DisableWindowsConsumerFeatures: $consumerExp" "CIS-L2"
+
+# Turn off Windows Spotlight
+$spotlight = Get-RegValue "HKCU:\SOFTWARE\Policies\Microsoft\Windows\CloudContent" "DisableWindowsSpotlightFeatures"
+$s = if ($spotlight -eq 1) { "PASS" } else { "WARN" }
+Add-Result "39.3" "Windows Spotlight Disabled" $s "DisableWindowsSpotlightFeatures: $spotlight" "CIS-L2"
+
+# Windows Error Reporting disabled
+$wer = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Error Reporting" "Disabled"
+$s = if ($wer -eq 1) { "PASS" } else { "WARN" }
+Add-Result "39.4" "Windows Error Reporting Disabled" $s "WER Disabled: $wer" "CIS-L2"
+
+# Disable advertising ID
+$advID = Get-RegValue "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\AdvertisingInfo" "Enabled"
+$s = if ($advID -eq 0 -or $null -eq $advID) { "PASS" } else { "WARN" }
+Add-Result "39.5" "Advertising ID Disabled" $s "AdvertisingInfo Enabled: $(if ($null -eq $advID) {'Not set'} else {$advID})" "CIS-L2"
+
+# Disable Cortana
+$cortana = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search" "AllowCortana"
+$s = if ($cortana -eq 0) { "PASS" } else { "WARN" }
+Add-Result "39.6" "Cortana Disabled" $s "AllowCortana: $cortana" "CIS-L2"
+
+# Disable Windows Game Recording
+$gameBar = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\GameDVR" "AllowGameDVR"
+$s = if ($gameBar -eq 0) { "PASS" } else { "WARN" }
+Add-Result "39.7" "Windows Game DVR/Recording Disabled" $s "AllowGameDVR: $gameBar" "CIS-L2"
+
+# Disable News and Interests / Widgets
+$widgets = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Feeds" "EnableFeeds"
+$s = if ($widgets -eq 0) { "PASS" } else { "WARN" }
+Add-Result "39.8" "News and Interests (Feeds) Disabled" $s "EnableFeeds: $widgets" "CIS-L2"
+
+# Turn off app notifications on lock screen
+$lockNotif = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\System" "DisableLockScreenAppNotifications"
+$s = if ($lockNotif -eq 1) { "PASS" } else { "WARN" }
+Add-Result "39.9" "Lock Screen App Notifications Disabled" $s "DisableLockScreenAppNotifications: $lockNotif" "CIS-L2"
+
+# Turn off picture password sign-in
+$picPwd = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\System" "BlockDomainPicturePassword"
+$s = if ($picPwd -eq 1) { "PASS" } else { "WARN" }
+Add-Result "39.10" "Picture Password Sign-In Disabled" $s "BlockDomainPicturePassword: $picPwd" "CIS-L2"
+
+# Do not show feedback notifications
+$feedbackNotif = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection" "DoNotShowFeedbackNotifications"
+$s = if ($feedbackNotif -eq 1) { "PASS" } else { "WARN" }
+Add-Result "39.11" "Feedback Notifications Disabled" $s "DoNotShowFeedbackNotifications: $feedbackNotif" "CIS-L2"
+
+# Disable Windows Tips
+$tips = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CloudContent" "DisableSoftLanding"
+$s = if ($tips -eq 1) { "PASS" } else { "WARN" }
+Add-Result "39.12" "Windows Tips/Suggestions Disabled" $s "DisableSoftLanding: $tips" "CIS-L2"
+
+# Location services
+$location = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\LocationAndSensors" "DisableLocation"
+$s = if ($location -eq 1) { "PASS" } else { "WARN" }
+Add-Result "39.13" "Location Services Disabled" $s "DisableLocation: $location" "CIS-L2"
+
+# Microsoft accounts - block in enterprise (L2)
+$msa = Get-RegValue "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" "NoConnectedUser"
+$s = if ($null -ne $msa -and $msa -ge 1) { "PASS" } else { "WARN" }
+Add-Result "39.14" "Microsoft Accounts Restricted" $s "NoConnectedUser: $msa (1=Blocked for sign-in, 3=Blocked entirely)" "CIS-L2"
+
+# App store - disable for Enterprise (L2)
+$appStore = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\WindowsStore" "DisableStoreApps"
+$s = if ($appStore -eq 1) { "PASS" } else { "WARN" }
+Add-Result "39.15" "Windows Store Apps Restricted (Enterprise)" $s "DisableStoreApps: $appStore" "CIS-L2"
+
+# Auto-update Store apps
+$storeAutoUpdate = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\WindowsStore" "AutoDownload"
+$s = if ($storeAutoUpdate -eq 4 -or $null -eq $storeAutoUpdate) { "PASS" } else { "WARN" }
+Add-Result "39.16" "Store App Auto-Update Not Disabled" $s "AutoDownload: $(if ($null -eq $storeAutoUpdate) {'Default'} else {$storeAutoUpdate}) (4=Auto)" "CIS-L2"
+
+# ============================================================
+#  SECTION 40: REMOTE ASSISTANCE & REMOTE TOOLS  [CIS L2]
+# ============================================================
+Write-SectionHeader "40. REMOTE ASSISTANCE & REMOTE TOOLS" "CIS L2"
+
+# Remote Assistance - should be disabled
+$raEnabled = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services" "fAllowToGetHelp"
+$s = if ($raEnabled -eq 0) { "PASS" } else { "FAIL" }
+Add-Result "40.1" "Remote Assistance Disabled" $s "fAllowToGetHelp: $raEnabled" "CIS-L2"
+
+# Remote Assistance - solicited
+$raSolicited = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\Remote Assistance" "fAllowToGetHelp"
+$s = if ($raSolicited -eq 0) { "PASS" } else { "WARN" }
+Add-Result "40.2" "Solicited Remote Assistance Disabled" $s "fAllowToGetHelp (system): $raSolicited" "CIS-L2"
+
+# Remote Assistance - unsolicited (offer)
+$raOffer = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services" "fAllowUnsolicited"
+$s = if ($raOffer -eq 0 -or $null -eq $raOffer) { "PASS" } else { "FAIL" }
+Add-Result "40.3" "Unsolicited (Offer) Remote Assistance Disabled" $s "fAllowUnsolicited: $raOffer" "CIS-L2"
+
+# WinRM - listener check
+$winrmListener = Get-ChildItem "WSMan:\localhost\Listener" -ErrorAction SilentlyContinue
+if ($winrmListener) {
+    $httpListeners  = $winrmListener | Where-Object { ($_ | Get-Item).GetChildItem() | Where-Object { $_.Name -eq "Transport" -and $_.Value -eq "HTTP" } }
+    $httpsListeners = $winrmListener | Where-Object { ($_ | Get-Item).GetChildItem() | Where-Object { $_.Name -eq "Transport" -and $_.Value -eq "HTTPS" } }
+    $s = if ($httpListeners) { "FAIL" } elseif ($httpsListeners) { "PASS" } else { "PASS" }
+    Add-Result "40.4" "WinRM: HTTPS Only (No HTTP Listener)" $s "HTTP listeners: $(if ($httpListeners) {$httpListeners.Count} else {0}), HTTPS listeners: $(if ($httpsListeners) {$httpsListeners.Count} else {0})" "CIS-L2"
+} else {
+    Add-Result "40.4" "WinRM: No Active Listeners" "PASS" "No WinRM listeners configured" "CIS-L2"
+}
+
+# PSRemoting
+$psRemoting = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WinRM\Service" "AllowAutoConfig"
+$s = if ($psRemoting -ne 1) { "PASS" } else { "WARN" }
+Add-Result "40.5" "PSRemoting / WinRM Auto-Config Restricted" $s "AllowAutoConfig: $psRemoting" "CIS-L2"
+
+# OpenSSH Server
+$sshSvc = Get-Service -Name "sshd" -ErrorAction SilentlyContinue
+$s = if ($null -eq $sshSvc -or $sshSvc.StartType -eq "Disabled") { "PASS" } else { "WARN" }
+Add-Result "40.6" "OpenSSH Server Not Running" $s "sshd: $(if ($sshSvc) {"$($sshSvc.Status) / $($sshSvc.StartType)"} else {'Not installed'})" "CIS-L2"
+
+# ============================================================
+#  SECTION 41: DNS CLIENT & NAME RESOLUTION SECURITY  [CIS L2]
+# ============================================================
+Write-SectionHeader "41. DNS CLIENT & NAME RESOLUTION SECURITY" "CIS L2"
+
+# DNS over HTTPS (DoH)
+$dohTemplate = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\Dnscache\Parameters" "EnableAutoDoh"
+$s = if ($dohTemplate -ge 2) { "PASS" } else { "WARN" }
+Add-Result "41.1" "DNS over HTTPS (DoH) Enabled" $s "EnableAutoDoh: $dohTemplate (2=Automatic, 3=Forced)" "CIS-L2"
+
+# Multicast DNS already checked in §23 but recheck at L2 level
+$mDNS2 = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\Dnscache\Parameters" "EnableMDNS"
+$s = if ($mDNS2 -eq 0) { "PASS" } else { "FAIL" }
+Add-Result "41.2" "Multicast DNS (mDNS) Disabled" $s "EnableMDNS: $(if ($null -eq $mDNS2) {'Not set (enabled)'} else {$mDNS2})" "CIS-L2"
+
+# NetBIOS name resolution - should not fall back
+$nbResolution = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\Dnscache\Parameters" "EnableNetbios"
+$s = if ($null -eq $nbResolution -or $nbResolution -eq 0) { "PASS" } else { "WARN" }
+Add-Result "41.3" "DNS Client NetBIOS Fallback Restricted" $s "EnableNetbios: $nbResolution" "CIS-L2"
+
+# Check WPAD (Web Proxy Auto Discovery) - poisoning risk
+$wpadSvc = Get-Service -Name "WinHttpAutoProxySvc" -ErrorAction SilentlyContinue
+$s = if ($null -eq $wpadSvc -or $wpadSvc.Status -ne "Running") { "PASS" } else { "WARN" }
+Add-Result "41.4" "WPAD Service Not Running" $s "WinHttpAutoProxySvc: $(if ($wpadSvc) {$wpadSvc.Status} else {'Not found'})" "CIS-L2"
+
+# DNS cache policy - negative TTL cap (limit poisoning window)
+$negCache = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\Dnscache\Parameters" "MaxNegativeCacheTtl"
+$s = if ($null -eq $negCache -or [int]$negCache -le 5) { "PASS" } else { "WARN" }
+Add-Result "41.5" "DNS Negative Cache TTL Capped" $s "MaxNegativeCacheTtl: $(if ($null -eq $negCache) {'Default'} else {$negCache}) (recommend <=5 seconds)" "CIS-L2"
+
+# ============================================================
+#  SECTION 42: SCHEDULED TASKS SECURITY AUDIT  [CIS L2]
+# ============================================================
+Write-SectionHeader "42. SCHEDULED TASKS SECURITY AUDIT" "CIS L2"
+
+# Look for scheduled tasks in user-writable locations (common persistence vector)
+$suspiciousTasks = @()
+try {
+    $allTasks = Get-ScheduledTask -ErrorAction SilentlyContinue |
+        Where-Object { $_.State -ne "Disabled" }
+
+    foreach ($task in $allTasks) {
+        $actions = $task.Actions
+        foreach ($action in $actions) {
+            if ($action.Execute) {
+                $exe = $action.Execute.ToLower()
+                # Flag tasks executing from writable user paths or temp locations
+                if ($exe -match "appdata|temp|tmp|public|downloads|desktop" -or
+                    $exe -match "\\users\\" -and $exe -notmatch "system32|syswow64") {
+                    $suspiciousTasks += "$($task.TaskPath)$($task.TaskName) -> $($action.Execute)"
+                }
+            }
+        }
+    }
+} catch {}
+
+$s = if ($suspiciousTasks.Count -eq 0) { "PASS" } else { "FAIL" }
+Add-Result "42.1" "No Tasks Executing from User-Writable Paths" $s "Suspicious tasks: $($suspiciousTasks.Count) found$(if ($suspiciousTasks.Count -gt 0) {" - Review: $($suspiciousTasks[0])"})" "CIS-L2"
+
+# Tasks created/modified in last 30 days (flag new tasks for review)
+try {
+    $recentTasks = Get-ScheduledTask -ErrorAction SilentlyContinue |
+        Where-Object { $_.State -ne "Disabled" } |
+        ForEach-Object {
+            $info = $_ | Get-ScheduledTaskInfo -ErrorAction SilentlyContinue
+            if ($info -and $info.LastRunTime -and ((Get-Date) - $info.LastRunTime).TotalDays -le 30) { $_ }
+        }
+    Add-Result "42.2" "Recently Active Scheduled Tasks" "INFO" "Tasks active in last 30 days: $($recentTasks.Count) - Review for unexpected entries" "CIS-L2"
+} catch {
+    Add-Result "42.2" "Recently Active Scheduled Tasks" "WARN" "Could not enumerate scheduled tasks" "CIS-L2"
+}
+
+# Verify AT scheduler is disabled (legacy, bypasses audit logging)
+$atSvc = Get-Service -Name "Schedule" -ErrorAction SilentlyContinue
+$atCmd  = Get-RegValue "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\Configuration" "TasksFolder"
+Add-Result "42.3" "Task Scheduler Service State" "INFO" "Schedule service: $(if ($atSvc) {$atSvc.Status} else {'Not found'}) - Ensure only authorised tasks are present" "CIS-L2"
+
+# ============================================================
+#  SECTION 43: MSS LEGACY SECURITY SETTINGS  [CIS L2]
+# ============================================================
+Write-SectionHeader "43. MSS (LEGACY) SECURITY SETTINGS" "CIS L2"
+
+# MSS: Auto-reboot after system crash - disabled (avoids info leak)
+$autoReboot = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\CrashControl" "AutoReboot"
+$s = if ($autoReboot -eq 0) { "PASS" } else { "WARN" }
+Add-Result "43.1" "MSS: Auto Reboot After Crash Disabled" $s "AutoReboot: $autoReboot" "CIS-L2"
+
+# MSS: Warning level for Security event log - 90%
+$logWarnLevel = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\Eventlog\Security" "WarningLevel"
+$s = if ($null -ne $logWarnLevel -and [int]$logWarnLevel -le 90) { "PASS" } else { "WARN" }
+Add-Result "43.2" "Security Log Warning Level <= 90%" $s "WarningLevel: $(if ($null -eq $logWarnLevel) {'Not set'} else {"$logWarnLevel%"})" "CIS-L2"
+
+# MSS: IP source routing protection (IPv4)
+$srcRoute = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters" "DisableIPSourceRouting"
+$s = if ($srcRoute -eq 2) { "PASS" } else { "FAIL" }
+Add-Result "43.3" "MSS: IP Source Routing Disabled (IPv4)" $s "DisableIPSourceRouting: $srcRoute (2=highest protection)" "CIS-L2"
+
+# MSS: IP source routing protection (IPv6)
+$srcRoute6 = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip6\Parameters" "DisableIPSourceRouting"
+$s = if ($srcRoute6 -eq 2) { "PASS" } else { "WARN" }
+Add-Result "43.4" "MSS: IP Source Routing Disabled (IPv6)" $s "DisableIPSourceRouting (v6): $srcRoute6" "CIS-L2"
+
+# MSS: Keep alive time - helps detect dead connections
+$keepAlive = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters" "KeepAliveTime"
+$s = if ($null -eq $keepAlive -or [int]$keepAlive -le 300000) { "PASS" } else { "WARN" }
+Add-Result "43.5" "MSS: TCP Keep Alive Time <= 5 Minutes" $s "KeepAliveTime: $(if ($null -eq $keepAlive) {'Default (2 hours)'} else {"$([math]::Round($keepAlive/60000)) min"})" "CIS-L2"
+
+# MSS: Disable IRDP (Internet Router Discovery Protocol)
+$irdp = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters" "PerformRouterDiscovery"
+$s = if ($irdp -eq 0 -or $null -eq $irdp) { "PASS" } else { "FAIL" }
+Add-Result "43.6" "MSS: IRDP (Router Discovery) Disabled" $s "PerformRouterDiscovery: $(if ($null -eq $irdp) {'Not set'} else {$irdp})" "CIS-L2"
+
+# MSS: Restrict null sessions
+$nullSess = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" "RestrictAnonymous"
+$s = if ($nullSess -ge 1) { "PASS" } else { "FAIL" }
+Add-Result "43.7" "MSS: Null Session Restricted" $s "RestrictAnonymous: $nullSess" "CIS-L2"
+
+# MSS: Screen saver grace period - 5 seconds
+$ssGrace = Get-RegValue "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" "ScreenSaverGracePeriod"
+$s = if ($null -ne $ssGrace -and [int]$ssGrace -le 5) { "PASS" } else { "WARN" }
+Add-Result "43.8" "MSS: Screen Saver Grace Period <= 5 Seconds" $s "ScreenSaverGracePeriod: $(if ($null -eq $ssGrace) {'Not set (default varies)'} else {$ssGrace})" "CIS-L2"
+
+# ============================================================
+#  SECTION 44: CIS L2 - NETWORK PROTOCOL HARDENING  [CIS L2]
+# ============================================================
+Write-SectionHeader "44. CIS L2 - NETWORK PROTOCOL HARDENING" "CIS L2"
+
+# Microsoft network client: always digitally sign communications
+$clientSign = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\LanmanWorkstation\Parameters" "RequireSecuritySignature"
+$s = if ($clientSign -eq 1) { "PASS" } else { "FAIL" }
+Add-Result "44.1" "SMB Client: Always Sign Communications" $s "RequireSecuritySignature: $clientSign" "CIS-L2"
+
+# Microsoft network client: send unencrypted password - Disabled
+$noPlainPwd = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\LanmanWorkstation\Parameters" "EnablePlainTextPassword"
+$s = if ($noPlainPwd -eq 0 -or $null -eq $noPlainPwd) { "PASS" } else { "FAIL" }
+Add-Result "44.2" "SMB Client: No Plain Text Passwords" $s "EnablePlainTextPassword: $(if ($null -eq $noPlainPwd) {'Default (0)'} else {$noPlainPwd})" "CIS-L2"
+
+# Microsoft network server: idle session disconnect - 15 minutes
+$idleTimeout = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\LanManServer\Parameters" "AutoDisconnect"
+$s = if ($null -eq $idleTimeout -or ([int]$idleTimeout -ge 1 -and [int]$idleTimeout -le 15)) { "PASS" } else { "WARN" }
+Add-Result "44.3" "SMB Server: Idle Session Timeout <= 15 Mins" $s "AutoDisconnect: $(if ($null -eq $idleTimeout) {'Default (15 mins)'} else {"$idleTimeout mins"})" "CIS-L2"
+
+# Microsoft network server: always digitally sign communications
+$serverSign = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\LanManServer\Parameters" "RequireSecuritySignature"
+$s = if ($serverSign -eq 1) { "PASS" } else { "FAIL" }
+Add-Result "44.4" "SMB Server: Always Sign Communications" $s "RequireSecuritySignature: $serverSign" "CIS-L2"
+
+# Microsoft network server: disconnect clients when logon hours expire
+$logonHours = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\LanManServer\Parameters" "EnableForcedLogOff"
+$s = if ($logonHours -eq 1) { "PASS" } else { "WARN" }
+Add-Result "44.5" "SMB Server: Disconnect When Logon Hours Expire" $s "EnableForcedLogOff: $logonHours" "CIS-L2"
+
+# LDAP channel binding
+$ldapChannelBinding = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\NTDS\Parameters" "LdapEnforceChannelBinding"
+$s = if ($ldapChannelBinding -ge 1) { "PASS" } else { "WARN" }
+Add-Result "44.6" "LDAP Channel Binding Enabled" $s "LdapEnforceChannelBinding: $ldapChannelBinding (1=Supported, 2=Always)" "CIS-L2"
+
+# Network access: remotely accessible registry paths - restricted
+$remRegPaths = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\SecurePipeServers\winreg\AllowedExactPaths" "Machine"
+$s = if ($null -ne $remRegPaths) { "PASS" } else { "WARN" }
+Add-Result "44.7" "Remotely Accessible Registry Paths Defined" $s "AllowedExactPaths defined: $(if ($null -ne $remRegPaths) {'Yes'} else {'Not configured'})" "CIS-L2"
+
+# Prevent anonymous pipe access
+$nullPipes = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\LanManServer\Parameters" "NullSessionPipes"
+$s = if ($null -eq $nullPipes -or $nullPipes -eq "") { "PASS" } else { "FAIL" }
+Add-Result "44.8" "No Anonymous Pipe Access (Null Session Pipes)" $s "NullSessionPipes: $(if ($null -eq $nullPipes -or $nullPipes -eq '') {'None (correct)'} else {$nullPipes})" "CIS-L2"
+
+# ============================================================
 #  CLEAN UP
 # ============================================================
 if (Test-Path $SecCfg) { Remove-Item $SecCfg -Force -ErrorAction SilentlyContinue }
@@ -1399,8 +2157,15 @@ $failCount     = ($Results | Where-Object { $_.Status -eq "FAIL" }).Count
 $warnCount     = ($Results | Where-Object { $_.Status -eq "WARN" }).Count
 $infoCount     = ($Results | Where-Object { $_.Status -eq "INFO" }).Count
 $entraCount    = ($Results | Where-Object { $_.Framework -eq "EntraID" }).Count
+$cisL1Count    = ($Results | Where-Object { $_.Framework -eq "CIS" }).Count
+$cisL2Count    = ($Results | Where-Object { $_.Framework -eq "CIS-L2" }).Count
+$ceCount       = ($Results | Where-Object { $_.Framework -match "CE" }).Count
 $scoreable     = $totalChecks - $infoCount
 $score         = if ($scoreable -gt 0) { [math]::Round(($passCount / $scoreable) * 100, 1) } else { 0 }
+$l2Score       = if ($cisL2Count -gt 0) {
+    $l2Pass = ($Results | Where-Object { $_.Framework -eq "CIS-L2" -and $_.Status -eq "PASS" }).Count
+    [math]::Round(($l2Pass / $cisL2Count) * 100, 1)
+} else { 0 }
 
 $summaryLines = @(
     "",
@@ -1412,8 +2177,14 @@ $summaryLines = @(
     "  FAIL                  : $failCount",
     "  WARN                  : $warnCount",
     "  INFO                  : $infoCount (informational, not scored)",
+    "  -----------------------------------------------------------------------",
+    "  CIS Level 1 Checks    : $cisL1Count",
+    "  CIS Level 2 Checks    : $cisL2Count",
     "  Entra/M365 Checks     : $entraCount",
-    "  Compliance Score      : $score% (PASS / scoreable checks)",
+    "  CE/CE+ Checks         : $ceCount",
+    "  -----------------------------------------------------------------------",
+    "  Overall Compliance    : $score%",
+    "  CIS L2 Compliance     : $l2Score%",
     "========================================================================",
     "  Device Context:",
     "  Join Type        : $joinType",
@@ -1423,30 +2194,30 @@ $summaryLines = @(
     "  Device ID        : $($Script:DeviceID)",
     "========================================================================",
     "  Sections Audited:",
-    "   1.  Password Policy                (CIS 1.1 | CE2 | Entra-aware)",
-    "   2.  Account Lockout                (CIS 1.2 | CE2 | Smart Lockout-aware)",
-    "   3.  Remote Desktop                 (CIS | CE1 | CE+)",
-    "   4.  Local Accounts                 (CIS | CE3 | CE+)",
-    "   5.  Windows Firewall               (CIS | CE1 | CE+)",
-    "   6.  Patch Management               (CIS | CE5 | CE+ | WUfB)",
-    "   7.  SMBv1 Protocol                 (CIS | CE2)",
-    "   8.  AutoRun / AutoPlay             (CIS)",
-    "   9.  Insecure Services              (CIS | CE2)",
-    "  10.  Admin Shares                   (CIS)",
-    "  11.  User Account Control           (CIS | CE3)",
-    "  12.  Security Protocols             (CIS | CE2 | NTLM-aware)",
-    "  13.  Audit Policy                   (CIS 17.x)",
-    "  14.  Malware Protection             (CIS | CE4 | CE+)",
-    "  15.  BitLocker / Encryption         (CIS | CE2 | Entra Key Backup)",
-    "  16.  Secure Boot & UEFI             (CIS | CE+)",
-    "  17.  PowerShell Security            (CIS | CE+)",
-    "  18.  Application Control            (CIS | CE2 | CE+)",
-    "  19.  Event Log Configuration        (CIS 18.x)",
-    "  20.  Credential Protection          (CIS | CE+ | PRT-aware)",
-    "  21.  Screen Lock / Session          (CIS | CE2)",
+    "   1.  Password Policy                (CIS L1 | CE2 | Entra-aware)",
+    "   2.  Account Lockout                (CIS L1 | CE2 | Smart Lockout-aware)",
+    "   3.  Remote Desktop                 (CIS L1 | CE1 | CE+)",
+    "   4.  Local Accounts                 (CIS L1 | CE3 | CE+)",
+    "   5.  Windows Firewall               (CIS L1 | CE1 | CE+)",
+    "   6.  Patch Management               (CIS L1 | CE5 | CE+ | WUfB)",
+    "   7.  SMBv1 Protocol                 (CIS L1 | CE2)",
+    "   8.  AutoRun / AutoPlay             (CIS L1)",
+    "   9.  Insecure Services              (CIS L1 | CE2)",
+    "  10.  Admin Shares                   (CIS L1)",
+    "  11.  User Account Control           (CIS L1 | CE3)",
+    "  12.  Security Protocols             (CIS L1 | CE2 | NTLM-aware)",
+    "  13.  Audit Policy                   (CIS L1 17.x)",
+    "  14.  Malware Protection             (CIS L1 | CE4 | CE+)",
+    "  15.  BitLocker / Encryption         (CIS L1 | CE2 | Entra Key Backup)",
+    "  16.  Secure Boot & UEFI             (CIS L1 | CE+)",
+    "  17.  PowerShell Security            (CIS L1 | CE+)",
+    "  18.  Application Control            (CIS L1 | CE2 | CE+)",
+    "  19.  Event Log Configuration        (CIS L1 18.x)",
+    "  20.  Credential Protection          (CIS L1 | CE+ | PRT-aware)",
+    "  21.  Screen Lock / Session          (CIS L1 | CE2)",
     "  22.  Unnecessary Features           (CE2 | CE+)",
-    "  23.  Network Security               (CIS | CE1 | CE2 | IPv6-aware)",
-    "  24.  Memory & Exploit Protection    (CIS)",
+    "  23.  Network Security               (CIS L1 | CE1 | CE2 | IPv6-aware)",
+    "  24.  Memory & Exploit Protection    (CIS L1)",
     "  25.  CE Secure Configuration        (CE2 | CE+)",
     "  26.  Cyber Essentials Plus          (CE+)",
     "  27.  Entra ID Device Identity       (EntraID | CE+)",
@@ -1455,6 +2226,18 @@ $summaryLines = @(
     "  30.  Defender for Endpoint (MDE)    (EntraID | CE+)",
     "  31.  Microsoft 365 / Office Sec     (EntraID | CE+)",
     "  32.  Conditional Access & Compliance(EntraID | CE+)",
+    "  33.  CIS L2 User Rights Assignment  (CIS L2)",
+    "  34.  CIS L2 Additional Sec Options  (CIS L2)",
+    "  35.  CIS L2 Advanced Audit Policy   (CIS L2 17.x)",
+    "  36.  TLS/SSL & Cipher Hardening     (CIS L2 | CE+)",
+    "  37.  Microsoft Edge Security        (CIS L2 | CE+)",
+    "  38.  Peripheral & Device Control    (CIS L2 | CE+)",
+    "  39.  Windows Components & Privacy   (CIS L2)",
+    "  40.  Remote Assistance & Tools      (CIS L2)",
+    "  41.  DNS Client & Name Resolution   (CIS L2)",
+    "  42.  Scheduled Tasks Security       (CIS L2)",
+    "  43.  MSS Legacy Security Settings   (CIS L2)",
+    "  44.  CIS L2 Network Protocol Hard.  (CIS L2)",
     "========================================================================"
 )
 
