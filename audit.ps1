@@ -1055,10 +1055,21 @@ Add-Result "27.5" "Primary Refresh Token (PRT) Present" $s "AzureAdPrt: $($Scrip
 $prtUpdate = $dsreg["AzureAdPrtUpdateTime"]
 if ($prtUpdate) {
     try {
-        $prtDate  = [datetime]::ParseExact($prtUpdate, "M/d/yyyy H:mm:ss AM", $null, [System.Globalization.DateTimeStyles]::None) -ErrorAction SilentlyContinue
-        $prtDays  = if ($prtDate) { ((Get-Date) - $prtDate).Days } else { $null }
-        $s = if ($null -eq $prtDays -or $prtDays -le 4) { "PASS" } elseif ($prtDays -le 14) { "WARN" } else { "FAIL" }
-        Add-Result "27.6" "PRT Last Updated" $s "Last update: $prtUpdate ($prtDays days ago) - PRT should refresh every 4 days" "EntraID"
+        $prtDate = $null
+        $formats = @("M/d/yyyy H:mm:ss tt", "M/d/yyyy HH:mm:ss", "d/M/yyyy H:mm:ss tt", "d/M/yyyy HH:mm:ss")
+        foreach ($fmt in $formats) {
+            try {
+                $prtDate = [datetime]::ParseExact($prtUpdate, $fmt, [System.Globalization.CultureInfo]::InvariantCulture)
+                break
+            } catch { }
+        }
+        if ($prtDate) {
+            $prtDays = ((Get-Date) - $prtDate).Days
+            $s = if ($prtDays -le 4) { "PASS" } elseif ($prtDays -le 14) { "WARN" } else { "FAIL" }
+            Add-Result "27.6" "PRT Last Updated" $s "Last update: $prtUpdate ($prtDays days ago) - PRT should refresh every 4 days" "EntraID"
+        } else {
+            Add-Result "27.6" "PRT Last Updated" "INFO" "Last update time: $prtUpdate (could not parse date)" "EntraID"
+        }
     } catch {
         Add-Result "27.6" "PRT Last Updated" "INFO" "Last update time: $prtUpdate" "EntraID"
     }
@@ -1358,8 +1369,8 @@ $m365Endpoints = @(
 
 foreach ($ep in $m365Endpoints) {
     try {
-        $dns = [System.Net.Dns]::GetHostAddresses($ep.Host) -ErrorAction Stop
-        $s   = if ($dns) { "PASS" } else { "FAIL" }
+        $dns = [System.Net.Dns]::GetHostAddresses($ep.Host)
+        $s   = if ($dns -and $dns.Count -gt 0) { "PASS" } else { "FAIL" }
         Add-Result "32.7" "M365 Connectivity: $($ep.Label)" $s "$($ep.Host) resolves to: $(($dns.IPAddressToString) -join ', ')" "EntraID"
     } catch {
         Add-Result "32.7" "M365 Connectivity: $($ep.Label)" "FAIL" "$($ep.Host) - DNS resolution failed (check firewall / proxy)" "EntraID"
