@@ -30,7 +30,7 @@
 # ============================================================
 #  INITIALISATION
 # ============================================================
-$ScriptVersion = "4.2.0"
+$ScriptVersion = "4.2.1"
 $Timestamp     = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
 $ReportPath    = "$env:USERPROFILE\Desktop\OTY_Heavy_Industries_Audit_$Timestamp.txt"
 $SecCfg        = "$env:TEMP\oty_secedit_$Timestamp.cfg"
@@ -3057,21 +3057,63 @@ $passCount     = ($Results | Where-Object { $_.Status -eq "PASS" }).Count
 $failCount     = ($Results | Where-Object { $_.Status -eq "FAIL" }).Count
 $warnCount     = ($Results | Where-Object { $_.Status -eq "WARN" }).Count
 $infoCount     = ($Results | Where-Object { $_.Status -eq "INFO" }).Count
-$entraCount    = ($Results | Where-Object { $_.Framework -eq "EntraID" }).Count
-$cisL1Count    = ($Results | Where-Object { $_.Framework -eq "CIS" }).Count
-$cisL2Count    = ($Results | Where-Object { $_.Framework -eq "CIS-L2" }).Count
-$ceCount       = ($Results | Where-Object { $_.Framework -match "^CE" }).Count
-$ncscCount     = ($Results | Where-Object { $_.Framework -eq "NCSC" }).Count
 $scoreable     = $totalChecks - $infoCount
-$score         = if ($scoreable -gt 0) { [math]::Round(($passCount / $scoreable) * 100, 1) } else { 0 }
-$l2Score       = if ($cisL2Count -gt 0) {
-    $l2Pass = ($Results | Where-Object { $_.Framework -eq "CIS-L2" -and $_.Status -eq "PASS" }).Count
-    [math]::Round(($l2Pass / $cisL2Count) * 100, 1)
+
+# ---- Per-framework result sets (INFO excluded from every denominator) ----
+$cisL1Results  = $Results | Where-Object { $_.Framework -eq "CIS"     -and $_.Status -ne "INFO" }
+$cisL2Results  = $Results | Where-Object { $_.Framework -eq "CIS-L2"  -and $_.Status -ne "INFO" }
+$ncscResults   = $Results | Where-Object { $_.Framework -eq "NCSC"    -and $_.Status -ne "INFO" }
+$ceResults     = $Results | Where-Object { $_.Framework -match "^CE"   -and $_.Status -ne "INFO" }
+$entraResults  = $Results | Where-Object { $_.Framework -eq "EntraID" -and $_.Status -ne "INFO" }
+
+$cisL1Count    = $cisL1Results.Count
+$cisL2Count    = $cisL2Results.Count
+$ncscCount     = $ncscResults.Count
+$ceCount       = $ceResults.Count
+$entraCount    = $entraResults.Count
+
+# ---- Overall score: PASS / all scoreable checks ----
+$score = if ($scoreable -gt 0) { [math]::Round(($passCount / $scoreable) * 100, 1) } else { 0 }
+
+# ---- CIS L1 score ----
+$cisL1Score = if ($cisL1Count -gt 0) {
+    [math]::Round((($cisL1Results | Where-Object { $_.Status -eq "PASS" }).Count / $cisL1Count) * 100, 1)
 } else { 0 }
-$ncscScore     = if ($ncscCount -gt 0) {
-    $ncscPass = ($Results | Where-Object { $_.Framework -eq "NCSC" -and $_.Status -eq "PASS" }).Count
-    [math]::Round(($ncscPass / $ncscCount) * 100, 1)
+
+# ---- CIS L2 score ----
+$l2Score = if ($cisL2Count -gt 0) {
+    [math]::Round((($cisL2Results | Where-Object { $_.Status -eq "PASS" }).Count / $cisL2Count) * 100, 1)
 } else { 0 }
+
+# ---- CE/CE+ score ----
+$ceScore = if ($ceCount -gt 0) {
+    [math]::Round((($ceResults | Where-Object { $_.Status -eq "PASS" }).Count / $ceCount) * 100, 1)
+} else { 0 }
+
+# ---- Entra/M365 score ----
+$entraScore = if ($entraCount -gt 0) {
+    [math]::Round((($entraResults | Where-Object { $_.Status -eq "PASS" }).Count / $entraCount) * 100, 1)
+} else { 0 }
+
+# ---- NCSC alignment score ----
+# NCSC checks use WARN to mean "CIS-compliant but not yet NCSC-optimal" rather than
+# "broken". A system configured to CIS standards will score mostly WARNs on NCSC checks
+# (e.g. length=14 passes CIS but WARNs on NCSC's 15-char threshold). Treating all WARNs
+# as 0% would be misleading — a WARN counts as 0.5 (partial alignment) so the score
+# reflects the genuine gap between current posture and full NCSC alignment.
+$ncscScore = if ($ncscCount -gt 0) {
+    $ncscPass    = ($ncscResults | Where-Object { $_.Status -eq "PASS" }).Count
+    $ncscWarn    = ($ncscResults | Where-Object { $_.Status -eq "WARN" }).Count
+    $ncscFail    = ($ncscResults | Where-Object { $_.Status -eq "FAIL" }).Count
+    # Weighted: PASS=1, WARN=0.5, FAIL=0
+    $ncscWeighted = ($ncscPass * 1.0) + ($ncscWarn * 0.5)
+    [math]::Round(($ncscWeighted / $ncscCount) * 100, 1)
+} else { 0 }
+
+# Separate NCSC breakdown figures for display
+$ncscPassCount = ($ncscResults | Where-Object { $_.Status -eq "PASS" }).Count
+$ncscWarnCount = ($ncscResults | Where-Object { $_.Status -eq "WARN" }).Count
+$ncscFailCount = ($ncscResults | Where-Object { $_.Status -eq "FAIL" }).Count
 
 $summaryLines = @(
     "",
@@ -3084,15 +3126,22 @@ $summaryLines = @(
     "  WARN                  : $warnCount",
     "  INFO                  : $infoCount (informational, not scored)",
     "  -----------------------------------------------------------------------",
-    "  CIS Level 1 Checks    : $cisL1Count",
-    "  CIS Level 2 Checks    : $cisL2Count",
-    "  NCSC Checks           : $ncscCount",
-    "  Entra/M365 Checks     : $entraCount",
-    "  CE/CE+ Checks         : $ceCount",
+    "  CIS Level 1 Checks    : $cisL1Count  (INFO excluded)",
+    "  CIS Level 2 Checks    : $cisL2Count  (INFO excluded)",
+    "  NCSC Checks           : $ncscCount   (INFO excluded)",
+    "  CE / CE+ Checks       : $ceCount     (INFO excluded)",
+    "  Entra / M365 Checks   : $entraCount  (INFO excluded)",
     "  -----------------------------------------------------------------------",
-    "  Overall Compliance    : $score%",
-    "  CIS L2 Compliance     : $l2Score%",
-    "  NCSC Alignment        : $ncscScore%",
+    "  Overall Compliance    : $score%  (PASS / all scoreable checks)",
+    "  CIS Level 1 Score     : $cisL1Score%",
+    "  CIS Level 2 Score     : $l2Score%",
+    "  CE / CE+ Score        : $ceScore%",
+    "  Entra / M365 Score    : $entraScore%",
+    "  NCSC Alignment        : $ncscScore%  (PASS=full, WARN=partial, FAIL=none)",
+    "    NCSC breakdown      : PASS=$ncscPassCount  WARN=$ncscWarnCount  FAIL=$ncscFailCount",
+    "    NOTE: WARN on NCSC = CIS-compliant but not yet NCSC-optimal (e.g. length=14",
+    "          passes CIS but NCSC recommends 15+ chars). Improve WARNs to reach full",
+    "          NCSC alignment. See ncsc.gov.uk/collection/passwords for guidance.",
     "========================================================================",
     "  Device Context:",
     "  Join Type        : $joinType",
