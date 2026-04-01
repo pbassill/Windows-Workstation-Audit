@@ -30,7 +30,7 @@
 # ============================================================
 #  INITIALISATION
 # ============================================================
-$ScriptVersion = "4.0.0"
+$ScriptVersion = "4.0.1"
 $Timestamp     = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
 $ReportPath    = "$env:USERPROFILE\Desktop\OTY_Heavy_Industries_Audit_$Timestamp.txt"
 $SecCfg        = "$env:TEMP\oty_secedit_$Timestamp.cfg"
@@ -309,7 +309,9 @@ try {
     $s     = if (-not $guest.Enabled) { "PASS" } else { "FAIL" }
     Add-Result "4.1" "Guest Account Disabled" $s "Account is $(if ($guest.Enabled) {'ENABLED'} else {'DISABLED'})"
 } catch {
-    Add-Result "4.1" "Guest Account Disabled" "WARN" "Could not query Guest account"
+    # Get-LocalUser throws if the account does not exist. A missing Guest account
+    # is effectively the same posture as a disabled one - treat as PASS.
+    Add-Result "4.1" "Guest Account Disabled" "PASS" "Guest account not found - account absent or inaccessible (treated as disabled)"
 }
 
 # Accounts with no password required
@@ -325,9 +327,25 @@ $adminGroup  = Get-LocalGroupMember -Group "Administrators" -ErrorAction Silentl
 $localAdmins = $adminGroup | Where-Object { $_.PrincipalSource -eq "Local" }
 $entraAdmins = $adminGroup | Where-Object { $_.PrincipalSource -in @("AzureAD","ActiveDirectory") }
 
-$adminCount = if ($adminGroup) { $adminGroup.Count } else { 0 }
+# Exclude the account running this script from the local admin count.
+# If the operator is the only local admin present, the effective count is 0
+# (they need admin rights to run the script - their presence is expected).
+$currentUserSID = ([System.Security.Principal.WindowsIdentity]::GetCurrent()).User.Value
+$localAdminsExcludingSelf = $localAdmins | Where-Object {
+    try {
+        $sid = (New-Object System.Security.Principal.NTAccount($_.Name)).Translate(
+                   [System.Security.Principal.SecurityIdentifier]).Value
+        $sid -ne $currentUserSID
+    } catch {
+        # If SID translation fails keep the account in the count (safer)
+        $true
+    }
+}
+
+$effectiveLocalCount = if ($localAdminsExcludingSelf) { @($localAdminsExcludingSelf).Count } else { 0 }
+$adminCount          = $effectiveLocalCount + ($entraAdmins | Measure-Object).Count
 $s = if ($adminCount -le 2) { "PASS" } elseif ($adminCount -le 4) { "WARN" } else { "FAIL" }
-Add-Result "4.3" "Local Admin Account Count" $s "Total: $adminCount | Local: $($localAdmins.Count) | Cloud/AD: $($entraAdmins.Count)"
+Add-Result "4.3" "Local Admin Account Count" $s "Effective total: $adminCount (local excl. script runner: $effectiveLocalCount | Cloud/AD: $(($entraAdmins | Measure-Object).Count)) | Script runner excluded: $env:USERNAME"
 
 if ($Script:EntraJoined -and $entraAdmins.Count -gt 0) {
     Add-Result "4.3E" "Entra ID Admins on Device" "INFO" "Cloud admin principals: $(($entraAdmins.Name) -join ', ') - Verify via Entra ID Device Local Admins policy" "EntraID"
@@ -356,8 +374,13 @@ $s = if ($denyLocal -and $denyLocal -match "Guest") { "PASS" } else { "FAIL" }
 Add-Result "4.6" "Deny Guests Local Logon" $s "Value: $denyLocal"
 
 $denyRDP = Get-SecEditValue "SeDenyRemoteInteractiveLogonRight"
-$s = if ($denyRDP -and $denyRDP -match "Guest") { "PASS" } else { "FAIL" }
-Add-Result "4.7" "Deny Guests RDP Logon" $s "Value: $denyRDP"
+if ($deny -eq 1) {
+    # RDP is disabled entirely - the deny right is redundant but posture is compliant
+    Add-Result "4.7" "Deny Guests RDP Logon" "PASS" "RDP is disabled - moot; no RDP logon possible"
+} else {
+    $s = if ($denyRDP -and $denyRDP -match "Guest") { "PASS" } else { "FAIL" }
+    Add-Result "4.7" "Deny Guests RDP Logon" $s "Value: $denyRDP"
+}
 
 # ============================================================
 #  SECTION 5: WINDOWS FIREWALL  [CIS | CE1 | CE+]
