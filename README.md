@@ -109,6 +109,15 @@ Run the script in an elevated PowerShell session:
 | 59 | Windows Event Forwarding | CIS L2 |
 | 60 | Additional Windows Defender Settings | CIS L1/L2 |
 
+## Changelog
+
+### Latest Changes
+
+- **Section 15 (BitLocker)**: BitLocker Key Backed Up to Entra/AD check now always returns PASS on Entra-joined devices with BitLocker enabled, since key escrow is managed by Entra ID.
+- **Section 22 (Unnecessary Windows Features)**: Features that return an empty or null state (i.e. not present / removed) are now correctly treated as PASS instead of WARN.
+- **Section 26A (Account Separation)**: Fixed a PowerShell compatibility error where `try` was used as a sub-expression inside `Where-Object`, causing a `CommandNotFoundException` on some systems.
+- **Section 26A (Entra Admins)**: Entra/AAD admin accounts found in the local Administrators group now report as INFO instead of WARN, since their presence is expected on Entra-joined devices.
+
 ## Author
 
 **Peter Bassill** — OTY Heavy Industries

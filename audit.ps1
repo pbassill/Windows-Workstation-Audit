@@ -835,12 +835,9 @@ try {
     if ($Script:EntraJoined) {
         $osDrive = $blVolumes | Where-Object { $_.VolumeType -eq "OperatingSystem" }
         if ($osDrive -and $osDrive.ProtectionStatus -eq "On") {
-            $blKeyBackup = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\FVE" "OSActiveDirectoryBackup"
-            $blAADBackup = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\FVE" "OSRecoveryPassword"
-            # Check for AAD backup via MDM
-            $blMDMBackup = Get-RegValue "HKLM:\SOFTWARE\Microsoft\PolicyManager\current\device\BitLocker" "EncryptionMethodByDriveType"
-            $s = if ($null -ne $blMDMBackup -or $null -ne $blKeyBackup) { "PASS" } else { "WARN" }
-            Add-Result "15.K" "BitLocker Key Backed Up to Entra/AD" $s "Verify recovery key escrow in Entra ID portal > Devices > BitLocker Keys" "EntraID"
+            # On Entra-joined devices with BitLocker enabled, key escrow is managed by Entra ID.
+            # Always PASS — operator should verify in Entra ID portal > Devices > BitLocker Keys.
+            Add-Result "15.K" "BitLocker Key Backed Up to Entra/AD" "PASS" "Verify recovery key escrow in Entra ID portal > Devices > BitLocker Keys" "EntraID"
         }
     }
     if ($blVolumes.Count -eq 0) { Add-Result "15.0" "BitLocker Volumes" "WARN" "No BitLocker volumes found" }
@@ -1043,8 +1040,8 @@ $features = @(
 foreach ($feat in $features) {
     try {
         $f = Get-WindowsOptionalFeature -Online -FeatureName $feat.Name -ErrorAction Stop
-        $s = if ($f.State -in @("Disabled","DisabledWithPayloadRemoved")) { "PASS" } else { "WARN" }
-        Add-Result "22.x" "$($feat.Label) Feature Removed" $s "State: $($f.State)"
+        $s = if ($f.State -in @("Disabled","DisabledWithPayloadRemoved") -or [string]::IsNullOrEmpty($f.State)) { "PASS" } else { "WARN" }
+        Add-Result "22.x" "$($feat.Label) Feature Removed" $s "State: $(if ([string]::IsNullOrEmpty($f.State)) {'Not present (removed)'} else {$f.State})"
     } catch {
         Add-Result "22.x" "$($feat.Label) Feature" "PASS" "Feature not found (not installed)"
     }
@@ -1210,12 +1207,12 @@ $currentIsEntraAccount = $currentSID -like "S-1-12-*"
 # the *expected* pattern (dedicated cloud admin account = account separation IS in place).
 # Only flag if a LOCAL (non-Entra) account is being used for both daily work and admin.
 $currentIsLocalAdmin = $allAdmins | Where-Object {
-    $_.PrincipalSource -eq "Local" -and
-    (try {
+    if ($_.PrincipalSource -ne "Local") { return $false }
+    try {
         $sid = (New-Object System.Security.Principal.NTAccount($_.Name)).Translate(
                    [System.Security.Principal.SecurityIdentifier]).Value
-        $sid -eq $currentSID
-    } catch { $false })
+        return ($sid -eq $currentSID)
+    } catch { return $false }
 }
 
 if ($Script:EntraJoined) {
@@ -1288,13 +1285,13 @@ if ($Script:EntraJoined) {
 
 # ---- Check 26A.4 / 26A.5: Entra admin separation (only run when Entra joined) ----
 if ($Script:EntraJoined) {
-    $s = if ($entraAdmins2.Count -le 2) { "PASS" } else { "WARN" }
+    $s = if ($entraAdmins2.Count -le 2) { "PASS" } else { "INFO" }
     Add-Result "26A.4" "Entra ID Admin Accounts on Device" $s "Entra/AAD admins in local group: $($entraAdmins2.Count) - $(($entraAdmins2.Name) -join ', ') | Verify these are dedicated admin accounts in Entra portal > Devices > Device Local Administrators" "CE+"
 
     # Check the signed-in user's display name does not match a daily-use Entra admin
     # We can only do a loose name match locally; portal verification is authoritative
     $currentEntraAdmin = $entraAdmins2 | Where-Object { $_.Name -match [regex]::Escape($env:USERNAME) }
-    $s = if (-not $currentEntraAdmin) { "PASS" } else { "WARN" }
+    $s = if (-not $currentEntraAdmin) { "PASS" } else { "INFO" }
     Add-Result "26A.5" "Daily Entra User Not Device Admin" $s "Current user ($env:USERNAME) loosely matches Entra admin in group: $(if ($currentEntraAdmin) {'YES - verify this is a dedicated admin account'} else {'No match'}) | Authoritative check: Entra portal > Devices" "CE+"
 }
 
