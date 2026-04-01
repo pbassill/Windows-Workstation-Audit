@@ -3320,10 +3320,98 @@ $summaryLines = @(
 foreach ($line in $summaryLines) { Write-Host $line -ForegroundColor Cyan }
 $summaryLines | Add-Content -Path $ReportPath
 
+# ============================================================
+#  PER-FRAMEWORK DETAILED REPORT SECTIONS
+# ============================================================
+
+# Helper to write a framework section to console and report file
+function Write-FrameworkSection {
+    param(
+        [string]$SectionTitle,
+        [string]$ScoreLabel,
+        [double]$Score,
+        [object[]]$FrameworkResults
+    )
+    $header = @(
+        "",
+        "========================================================================",
+        "  $SectionTitle",
+        "========================================================================",
+        "  Score: $Score%  |  Total Checks: $($FrameworkResults.Count)"
+    )
+    $passItems = $FrameworkResults | Where-Object { $_.Status -eq "PASS" }
+    $failItems = $FrameworkResults | Where-Object { $_.Status -eq "FAIL" }
+    $warnItems = $FrameworkResults | Where-Object { $_.Status -eq "WARN" }
+    $header += "  PASS: $($passItems.Count)  |  FAIL: $($failItems.Count)  |  WARN: $($warnItems.Count)"
+    $header += "------------------------------------------------------------------------"
+
+    foreach ($h in $header) { Write-Host $h -ForegroundColor Cyan }
+    $header | Add-Content -Path $ReportPath
+
+    if ($failItems.Count -gt 0) {
+        $subHead = "`n  FAILED:"
+        Write-Host $subHead -ForegroundColor Red
+        Add-Content -Path $ReportPath -Value $subHead
+        foreach ($r in $failItems) {
+            $l = "    [$($r.ID)] $($r.Description) - $($r.Detail)"
+            Write-Host $l -ForegroundColor Red
+            Add-Content -Path $ReportPath -Value $l
+        }
+    }
+    if ($warnItems.Count -gt 0) {
+        $subHead = "`n  WARNINGS:"
+        Write-Host $subHead -ForegroundColor Yellow
+        Add-Content -Path $ReportPath -Value $subHead
+        foreach ($r in $warnItems) {
+            $l = "    [$($r.ID)] $($r.Description) - $($r.Detail)"
+            Write-Host $l -ForegroundColor Yellow
+            Add-Content -Path $ReportPath -Value $l
+        }
+    }
+    if ($passItems.Count -gt 0) {
+        $subHead = "`n  PASSED:"
+        Write-Host $subHead -ForegroundColor Green
+        Add-Content -Path $ReportPath -Value $subHead
+        foreach ($r in $passItems) {
+            $l = "    [$($r.ID)] $($r.Description) - $($r.Detail)"
+            Write-Host $l -ForegroundColor Green
+            Add-Content -Path $ReportPath -Value $l
+        }
+    }
+
+    $footer = "========================================================================"
+    Write-Host $footer -ForegroundColor Cyan
+    Add-Content -Path $ReportPath -Value $footer
+}
+
+# ---- CIS Level 1 Section ----
+if ($cisL1Count -gt 0) {
+    Write-FrameworkSection -SectionTitle "CIS LEVEL 1 REPORT" -ScoreLabel "CIS L1" -Score $cisL1Score -FrameworkResults $cisL1Results
+}
+
+# ---- CIS Level 2 Section ----
+if ($cisL2Count -gt 0) {
+    Write-FrameworkSection -SectionTitle "CIS LEVEL 2 REPORT" -ScoreLabel "CIS L2" -Score $l2Score -FrameworkResults $cisL2Results
+}
+
+# ---- Cyber Essentials Section ----
+if ($ceCount -gt 0) {
+    Write-FrameworkSection -SectionTitle "CYBER ESSENTIALS / CE+ REPORT" -ScoreLabel "CE/CE+" -Score $ceScore -FrameworkResults $ceResults
+}
+
+# ---- NCSC Alignment Section ----
+if ($ncscCount -gt 0) {
+    Write-FrameworkSection -SectionTitle "NCSC ALIGNMENT REPORT" -ScoreLabel "NCSC" -Score $ncscScore -FrameworkResults $ncscResults
+}
+
+# ============================================================
+#  OVERALL FAILED & WARNING CONTROLS
+# ============================================================
+
 # Failed controls list
 if ($failCount -gt 0) {
-    Write-Host "`n  FAILED CONTROLS:" -ForegroundColor Red
-    Add-Content -Path $ReportPath -Value "`n  FAILED CONTROLS:"
+    Write-Host "`n  ALL FAILED CONTROLS:" -ForegroundColor Red
+    Add-Content -Path $ReportPath -Value "`n  ALL FAILED CONTROLS:"
     $Results | Where-Object { $_.Status -eq "FAIL" } | ForEach-Object {
         $line = "    [$($_.ID)] [$($_.Framework)] $($_.Description) - $($_.Detail)"
         Write-Host $line -ForegroundColor Red
@@ -3333,8 +3421,8 @@ if ($failCount -gt 0) {
 
 # Warnings list
 if ($warnCount -gt 0) {
-    Write-Host "`n  WARNINGS (review manually):" -ForegroundColor Yellow
-    Add-Content -Path $ReportPath -Value "`n  WARNINGS (review manually):"
+    Write-Host "`n  ALL WARNINGS (review manually):" -ForegroundColor Yellow
+    Add-Content -Path $ReportPath -Value "`n  ALL WARNINGS (review manually):"
     $Results | Where-Object { $_.Status -eq "WARN" } | ForEach-Object {
         $line = "    [$($_.ID)] [$($_.Framework)] $($_.Description) - $($_.Detail)"
         Write-Host $line -ForegroundColor Yellow
