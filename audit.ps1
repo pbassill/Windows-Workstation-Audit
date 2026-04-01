@@ -613,10 +613,10 @@ Write-SectionHeader "8. AUTORUN / AUTOPLAY" "CIS"
 $autoRun  = Get-RegValue "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer" "NoAutorun"
 $autoPlay = Get-RegValue "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer" "NoDriveTypeAutoRun"
 
-$s = if ($autoRun -eq 1) { "PASS" } else { "FAIL" }
+$s = if ($autoRun -eq 1 -or $null -eq $autoRun) { "PASS" } else { "FAIL" }
 Add-Result "8.1" "AutoRun Disabled" $s "Required: 1, Got: $autoRun"
 
-$s = if ($autoPlay -eq 255) { "PASS" } else { "FAIL" }
+$s = if ($autoPlay -eq 255 -or $null -eq $autoPlay) { "PASS" } else { "FAIL" }
 Add-Result "8.2" "AutoPlay Disabled (All Drives)" $s "Required: 255, Got: $autoPlay"
 
 # ============================================================
