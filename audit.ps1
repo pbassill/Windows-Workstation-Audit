@@ -30,7 +30,7 @@
 # ============================================================
 #  INITIALISATION
 # ============================================================
-$ScriptVersion = "4.2.1"
+$ScriptVersion = "4.2.2"
 $Timestamp     = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
 $ReportPath    = "$env:USERPROFILE\Desktop\OTY_Heavy_Industries_Audit_$Timestamp.txt"
 $SecCfg        = "$env:TEMP\oty_secedit_$Timestamp.cfg"
@@ -426,26 +426,77 @@ if ($Script:EntraJoined -and $entraAdmins.Count -gt 0) {
 }
 
 # Built-in Admin renamed
+# On Entra joined + MDM enrolled devices, the built-in admin is typically managed
+# by Windows LAPS or disabled via Intune - local renaming policy may not apply.
 $adminUser = Get-LocalUser | Where-Object { $_.SID -like "S-1-5-*-500" } -ErrorAction SilentlyContinue
 if ($adminUser) {
-    $s = if ($adminUser.Name -ne "Administrator") { "PASS" } else { "WARN" }
-    Add-Result "4.4" "Built-in Admin Account Renamed" $s "Account name: $($adminUser.Name)"
+    if ($Script:EntraJoined -and $Script:MDMEnrolled) {
+        # LAPS manages this account - renaming is less critical when LAPS rotates the password
+        $lapsManaged = $null -ne (Get-RegValue "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\LAPS" "BackupDirectory")
+        if ($lapsManaged) {
+            Add-Result "4.4" "Built-in Admin Account Renamed" "PASS" "Account: $($adminUser.Name) | Entra+MDM device with LAPS configured - LAPS manages this account; renaming is supplementary" "EntraID"
+        } else {
+            $s = if ($adminUser.Name -ne "Administrator") { "PASS" } else { "WARN" }
+            Add-Result "4.4" "Built-in Admin Account Renamed" $s "Account: $($adminUser.Name) | Entra+MDM device but LAPS not detected - consider enabling LAPS via Intune"
+        }
+    } else {
+        $s = if ($adminUser.Name -ne "Administrator") { "PASS" } else { "WARN" }
+        Add-Result "4.4" "Built-in Admin Account Renamed" $s "Account name: $($adminUser.Name)"
+    }
 } else {
     Add-Result "4.4" "Built-in Admin Account Renamed" "WARN" "Could not determine built-in admin account"
 }
 
-# Non-expiring passwords (skip Entra cloud accounts as they are not local)
+# Non-expiring passwords
+# On Entra joined devices, primary user identities are cloud-managed by Entra ID.
+# Get-LocalUser only returns local accounts; Entra users do not appear here.
+# On a well-configured Entra device the only enabled local accounts should be
+# the built-in admin (managed by LAPS) and possibly a break-glass account.
 $neverExpire = Get-LocalUser | Where-Object { $_.PasswordExpires -eq $null -and $_.Enabled -eq $true -and $_.PasswordRequired -eq $true }
-if ($neverExpire) {
-    Add-Result "4.5" "No Accounts With Non-Expiring Password" "WARN" "Non-expiring local accounts: $(($neverExpire.Name) -join ', ')"
+if ($Script:EntraJoined -and $Script:MDMEnrolled) {
+    # Filter out the built-in admin (SID -500) if LAPS is managing it - its expiry
+    # being null is expected and correct (LAPS rotates the password, not the OS expiry)
+    $lapsActive = $null -ne (Get-RegValue "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\LAPS" "BackupDirectory")
+    $neverExpireNonLaps = $neverExpire | Where-Object {
+        $acct = $_
+        try {
+            $sid = $acct.SID.Value
+            # Exclude built-in admin when LAPS is active
+            -not ($lapsActive -and $sid -like "S-1-5-*-500")
+        } catch { $true }
+    }
+    if ($neverExpireNonLaps) {
+        Add-Result "4.5" "No Accounts With Non-Expiring Password" "WARN" "Non-expiring local accounts (excl. LAPS-managed): $(($neverExpireNonLaps.Name) -join ', ') | Entra users managed via cloud - only local accounts shown" "EntraID"
+    } else {
+        Add-Result "4.5" "No Accounts With Non-Expiring Password" "PASS" "No local accounts with non-expiring passwords (excl. LAPS-managed built-in admin) | Entra user identities managed via Entra ID" "EntraID"
+    }
 } else {
-    Add-Result "4.5" "No Accounts With Non-Expiring Password" "PASS" "No enabled local accounts have non-expiring passwords"
+    if ($neverExpire) {
+        Add-Result "4.5" "No Accounts With Non-Expiring Password" "WARN" "Non-expiring local accounts: $(($neverExpire.Name) -join ', ')"
+    } else {
+        Add-Result "4.5" "No Accounts With Non-Expiring Password" "PASS" "No enabled local accounts have non-expiring passwords"
+    }
 }
 
-# Deny log on locally / RDP for Guests
+# Deny log on locally for Guests
+# On Entra joined + MDM enrolled devices, who can sign in locally is governed by
+# Entra Conditional Access and the Intune Device Local Admins policy.
+# The Guest account is typically absent or disabled; the deny-right may not be set
+# because Entra identity policy supersedes local security policy for user logon.
 $denyLocal = Get-SecEditValue "SeDenyInteractiveLogonRight"
-$s = if ($denyLocal -and $denyLocal -match "Guest") { "PASS" } else { "FAIL" }
-Add-Result "4.6" "Deny Guests Local Logon" $s "Value: $denyLocal"
+if ($Script:EntraJoined -and $Script:MDMEnrolled) {
+    # Guest is disabled/absent AND Entra controls logon = compliant regardless of secedit
+    $guestEnabled = $false
+    try {
+        $guestAcct = Get-LocalUser -Name "Guest" -ErrorAction Stop
+        $guestEnabled = $guestAcct.Enabled
+    } catch { $guestEnabled = $false }  # absent = not enabled
+    $s = if (-not $guestEnabled) { "PASS" } else { "FAIL" }
+    Add-Result "4.6" "Deny Guests Local Logon" $s "Entra+MDM managed device | Guest account enabled: $guestEnabled | Entra ID Conditional Access governs local logon | secedit value: $denyLocal" "EntraID"
+} else {
+    $s = if ($denyLocal -and $denyLocal -match "Guest") { "PASS" } else { "FAIL" }
+    Add-Result "4.6" "Deny Guests Local Logon" $s "Value: $denyLocal"
+}
 
 $denyRDP = Get-SecEditValue "SeDenyRemoteInteractiveLogonRight"
 if ($deny -eq 1) {
@@ -1144,45 +1195,74 @@ Add-Result "26.8" "Early Launch Anti-Malware (ELAM)" $s "DriverLoadPolicy: $elam
 # ============================================================
 Write-SectionHeader "26A. CE+ / NCSC - ACCOUNT SEPARATION" "CE+ | NCSC"
 
-# Identify all local admin accounts
+# Identify all members of the local Administrators group
 $allAdmins    = Get-LocalGroupMember -Group "Administrators" -ErrorAction SilentlyContinue
 $localAdmins2 = $allAdmins | Where-Object { $_.PrincipalSource -eq "Local" }
+$entraAdmins2 = $allAdmins | Where-Object { $_.PrincipalSource -in @("AzureAD","ActiveDirectory") }
 
-# Current interactive user SID
-$currentSID = ([System.Security.Principal.WindowsIdentity]::GetCurrent()).User.Value
+# Current interactive user - determine if they are a local or Entra identity
+$currentSID       = ([System.Security.Principal.WindowsIdentity]::GetCurrent()).User.Value
+$currentIdentity  = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+# An Entra/AAD account SID starts with S-1-12 on Entra joined devices
+$currentIsEntraAccount = $currentSID -like "S-1-12-*"
 
-# Check 1: Is the currently logged-on user also a local admin?
-# If so, warn - daily-use account should not be admin (account separation)
-$currentIsAdmin = $allAdmins | Where-Object {
-    try {
+# ---- Check 26A.1: Current user is not running as a privileged daily-use account ----
+# On Entra-joined + MDM-managed devices, the operator must use an admin account to run
+# this script. If the current identity is an Entra account in the admin group, that is
+# the *expected* pattern (dedicated cloud admin account = account separation IS in place).
+# Only flag if a LOCAL (non-Entra) account is being used for both daily work and admin.
+$currentIsLocalAdmin = $allAdmins | Where-Object {
+    $_.PrincipalSource -eq "Local" -and
+    (try {
         $sid = (New-Object System.Security.Principal.NTAccount($_.Name)).Translate(
                    [System.Security.Principal.SecurityIdentifier]).Value
         $sid -eq $currentSID
-    } catch { $false }
+    } catch { $false })
 }
-$s = if (-not $currentIsAdmin) { "PASS" } else { "WARN" }
-Add-Result "26A.1" "Current User Is NOT a Local Admin" $s "User '$env:USERNAME' in Administrators: $(if ($currentIsAdmin) {'YES - daily account has admin rights (CE+ violation)'} else {'No (separate admin account in use - correct)'})" "CE+"
 
-# Check 2: Admin account naming convention indicator
-# CE+ guidance: admin accounts should have a distinct name prefix/suffix
-# We check for common conventions: adm-, admin-, -adm, -admin, svc-
+if ($Script:EntraJoined) {
+    if ($currentIsEntraAccount) {
+        # Running as an Entra account - account separation is implied if the Entra account
+        # is a dedicated admin account (not the user's daily M365 account)
+        Add-Result "26A.1" "Current User Is Entra Account (Not Local Admin)" "PASS" "User '$env:USERNAME' is an Entra/AAD identity (SID: $currentSID) | Account separation managed by Entra ID - verify this is a dedicated admin account, not the daily user account" "CE+"
+    } elseif ($currentIsLocalAdmin) {
+        Add-Result "26A.1" "Current User Is NOT a Local Admin" "WARN" "User '$env:USERNAME' is a LOCAL admin account | On Entra-joined devices prefer using Entra-managed admin identities rather than local accounts for privileged tasks" "CE+"
+    } else {
+        Add-Result "26A.1" "Current User Is NOT a Local Admin" "PASS" "User '$env:USERNAME' is not in the local Administrators group | Admin separation in place" "CE+"
+    }
+} else {
+    $s = if (-not $currentIsLocalAdmin) { "PASS" } else { "WARN" }
+    Add-Result "26A.1" "Current User Is NOT a Local Admin" $s "User '$env:USERNAME' in local Administrators: $(if ($currentIsLocalAdmin) {'YES - daily account has admin rights (CE+ violation)'} else {'No (separate admin account in use - correct)'})" "CE+"
+}
+
+# ---- Check 26A.2: Admin account naming convention ----
+# On Entra-joined devices, admin identities in the local group may be Entra accounts
+# whose naming is governed by Entra (e.g. AzureAD\adm.jbloggs@contoso.com).
+# Only check local accounts for naming convention - Entra accounts are handled in the portal.
 $suspectAdminNames = $localAdmins2 | Where-Object {
     $name = $_.Name.ToLower()
-    # Flag accounts that look like regular user accounts (no admin prefix/suffix)
-    # and are not the built-in Administrator
     try {
-        $sid = (New-Object System.Security.Principal.NTAccount($_.Name)).Translate(
-                   [System.Security.Principal.SecurityIdentifier]).Value
+        $sid      = (New-Object System.Security.Principal.NTAccount($_.Name)).Translate(
+                        [System.Security.Principal.SecurityIdentifier]).Value
         $isBuiltIn = $sid -like "S-1-5-*-500"
     } catch { $isBuiltIn = $false }
     -not $isBuiltIn -and
     $name -notmatch "^adm[-_]|[-_]adm$|^admin[-_]|[-_]admin$|^svc[-_]|^sa[-_]|^priv[-_]|[-_]priv$"
 }
-$s = if ($suspectAdminNames.Count -eq 0) { "PASS" } else { "WARN" }
-Add-Result "26A.2" "Admin Accounts Use Naming Convention" $s "Accounts without admin-prefix naming: $(if ($suspectAdminNames.Count -gt 0) {($suspectAdminNames.Name) -join ', '} else {'None detected'}) - CE+: admin accounts should be clearly identified (e.g. adm-jbloggs)" "CE+"
 
-# Check 3: Standard user account count vs admin count
-# CE+: most users should be standard users; admins should be minimal
+if ($Script:EntraJoined -and $entraAdmins2.Count -gt 0 -and $localAdmins2.Count -le 1) {
+    # Primary admin identities are Entra accounts - naming convention for local accounts is less critical
+    $s = if ($suspectAdminNames.Count -eq 0) { "PASS" } else { "WARN" }
+    Add-Result "26A.2" "Admin Accounts Use Naming Convention" $s "Local accounts without admin-prefix: $(if ($suspectAdminNames.Count -gt 0) {($suspectAdminNames.Name) -join ', '} else {'None'}) | Entra admin accounts ($($entraAdmins2.Count)): naming governed by Entra ID - verify in Entra portal" "CE+"
+} else {
+    $s = if ($suspectAdminNames.Count -eq 0) { "PASS" } else { "WARN" }
+    Add-Result "26A.2" "Admin Accounts Use Naming Convention" $s "Local accounts without admin-prefix naming: $(if ($suspectAdminNames.Count -gt 0) {($suspectAdminNames.Name) -join ', '} else {'None detected'}) - CE+: admin accounts should be clearly identified (e.g. adm-jbloggs)" "CE+"
+}
+
+# ---- Check 26A.3: Admin-to-user ratio ----
+# On Entra-joined devices, Get-LocalUser only returns local accounts - Entra users do not
+# appear here. A standard Entra-joined workstation may have 0-1 local users + 1 local admin
+# (the built-in, managed by LAPS). The meaningful ratio is in Entra ID, not locally.
 $allLocalUsers     = Get-LocalUser -ErrorAction SilentlyContinue | Where-Object { $_.Enabled -eq $true }
 $adminSIDs         = @()
 foreach ($adm in $localAdmins2) {
@@ -1191,35 +1271,36 @@ foreach ($adm in $localAdmins2) {
                           [System.Security.Principal.SecurityIdentifier]).Value
     } catch {}
 }
-$standardUsers = $allLocalUsers | Where-Object {
-    try {
-        $sid = $_.SID.Value
-        $sid -notin $adminSIDs -and $sid -notlike "S-1-5-*-500"
-    } catch { $true }
+$standardLocalUsers = $allLocalUsers | Where-Object {
+    $sid = $_.SID.Value
+    $sid -notin $adminSIDs -and $sid -notlike "S-1-5-*-500"
 }
-$adminToUserRatio = if ($standardUsers.Count -gt 0) {
-    [math]::Round($localAdmins2.Count / ($localAdmins2.Count + $standardUsers.Count) * 100, 0)
-} else { 100 }
-$s = if ($adminToUserRatio -le 20) { "PASS" } elseif ($adminToUserRatio -le 40) { "WARN" } else { "FAIL" }
-Add-Result "26A.3" "Admin-to-User Ratio Acceptable" $s "Local admins: $($localAdmins2.Count) | Standard users: $($standardUsers.Count) | Admin ratio: $adminToUserRatio% (CE+: keep admin accounts minimal)" "CE+"
 
-# Check 4: Domain / Entra admin separation indicator
-# On Entra joined devices, check if the logged-on user has a Global Admin or similar role
-# We can only infer this locally - check if user is in the Device Administrators AAD group
 if ($Script:EntraJoined) {
-    $entraAdminsOnDevice = $allAdmins | Where-Object { $_.PrincipalSource -eq "AzureAD" }
-    $s = if ($entraAdminsOnDevice.Count -le 2) { "PASS" } else { "WARN" }
-    Add-Result "26A.4" "Entra ID Admin Accounts on Device" $s "Entra/AAD admins present: $($entraAdminsOnDevice.Count) - $(($entraAdminsOnDevice.Name) -join ', ') | Verify these are dedicated admin accounts in Entra portal" "CE+"
-
-    # Check the signed-in user is not in an Entra admin role on this device
-    $currentEntraAdmin = $entraAdminsOnDevice | Where-Object { $_.Name -match $env:USERNAME }
-    $s = if (-not $currentEntraAdmin) { "PASS" } else { "WARN" }
-    Add-Result "26A.5" "Daily Entra User Not Device Admin" $s "Current user ($env:USERNAME) matches Entra admin on device: $(if ($currentEntraAdmin) {'YES - review account separation'} else {'No match detected'})" "CE+"
+    # On Entra devices the ratio of local accounts is not meaningful - Entra manages users
+    # Report as INFO with context rather than a scored check that would always look bad
+    Add-Result "26A.3" "Admin-to-User Ratio (Entra Device)" "INFO" "Local admins: $($localAdmins2.Count) | Local std users: $($standardLocalUsers.Count) | Entra admins in group: $($entraAdmins2.Count) | User/admin ratio is managed by Entra ID - verify in Entra portal > Devices > Device Local Administrators" "CE+"
+} else {
+    $adminToUserRatio = if ($standardLocalUsers.Count -gt 0) {
+        [math]::Round($localAdmins2.Count / ($localAdmins2.Count + $standardLocalUsers.Count) * 100, 0)
+    } else { 100 }
+    $s = if ($adminToUserRatio -le 20) { "PASS" } elseif ($adminToUserRatio -le 40) { "WARN" } else { "FAIL" }
+    Add-Result "26A.3" "Admin-to-User Ratio Acceptable" $s "Local admins: $($localAdmins2.Count) | Standard users: $($standardLocalUsers.Count) | Admin ratio: $adminToUserRatio% (CE+: keep admin accounts minimal)" "CE+"
 }
 
-# Check 5: Privileged Access Workstation (PAW) indicator
-# PAW devices should not have regular user accounts doing daily browsing/email
-# Heuristic: check if any productivity software is installed alongside admin tools
+# ---- Check 26A.4 / 26A.5: Entra admin separation (only run when Entra joined) ----
+if ($Script:EntraJoined) {
+    $s = if ($entraAdmins2.Count -le 2) { "PASS" } else { "WARN" }
+    Add-Result "26A.4" "Entra ID Admin Accounts on Device" $s "Entra/AAD admins in local group: $($entraAdmins2.Count) - $(($entraAdmins2.Name) -join ', ') | Verify these are dedicated admin accounts in Entra portal > Devices > Device Local Administrators" "CE+"
+
+    # Check the signed-in user's display name does not match a daily-use Entra admin
+    # We can only do a loose name match locally; portal verification is authoritative
+    $currentEntraAdmin = $entraAdmins2 | Where-Object { $_.Name -match [regex]::Escape($env:USERNAME) }
+    $s = if (-not $currentEntraAdmin) { "PASS" } else { "WARN" }
+    Add-Result "26A.5" "Daily Entra User Not Device Admin" $s "Current user ($env:USERNAME) loosely matches Entra admin in group: $(if ($currentEntraAdmin) {'YES - verify this is a dedicated admin account'} else {'No match'}) | Authoritative check: Entra portal > Devices" "CE+"
+}
+
+# ---- Check 26A.6: PAW indicator ----
 $officeInstalled2 = Test-Path "${env:ProgramFiles}\Microsoft Office"
 $browserInstalled = (Test-Path "${env:ProgramFiles}\Google\Chrome\Application\chrome.exe") -or
                     (Test-Path "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe") -or
@@ -1239,18 +1320,43 @@ if ($officeInstalled2 -or $browserInstalled) {
 # ============================================================
 Write-SectionHeader "26B. CE+ / NCSC - TWO-FACTOR AUTHENTICATION" "CE+ | NCSC"
 
-# Check 1: Windows Hello for Business (device-bound phishing-resistant MFA)
-$whfbPolicy   = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\PassportForWork" "Enabled"
-$whfbNGCKey   = $dsreg["NgcSet"]
-$s = if ($whfbPolicy -eq 1 -and $whfbNGCKey -eq "YES") { "PASS" }
-     elseif ($whfbPolicy -eq 1 -or $whfbNGCKey -eq "YES") { "WARN" }
-     else { "FAIL" }
-Add-Result "26B.1" "Windows Hello for Business Enabled + Enrolled" $s "WHfB policy: $whfbPolicy | NGC key registered: $whfbNGCKey | Both required for active phishing-resistant MFA" "CE+"
+# ---- Check 26B.1: Windows Hello for Business enabled and enrolled ----
+# On Entra + MDM managed devices, WHfB policy may be delivered via Intune CSP
+# rather than a local GPO registry key, so the absence of the policy key does NOT
+# mean WHfB is disabled. The NGC key registration is the authoritative local indicator.
+$whfbPolicy    = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\PassportForWork" "Enabled"
+$whfbCSP       = Get-RegValue "HKLM:\SOFTWARE\Microsoft\PolicyManager\current\device\PassportForWork" "Enabled"
+$whfbNGCKey    = $dsreg["NgcSet"]
+$whfbMDMActive = $null -ne $whfbCSP
 
-# Check 2: WHfB requires TPM (hardware-backed - stronger than software)
-$whfbTPM = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\PassportForWork" "RequireSecurityDevice"
-$s = if ($whfbTPM -eq 1) { "PASS" } else { "WARN" }
-Add-Result "26B.2" "WHfB: TPM Required (Hardware-Backed MFA)" $s "RequireSecurityDevice: $whfbTPM | NCSC: hardware-backed credentials preferred over software" "CE+"
+if ($Script:EntraJoined -and $Script:MDMEnrolled) {
+    # On Entra+MDM: NGC key present = user has enrolled WHfB credential = PASS
+    # Policy delivery via Intune CSP may not leave a local GPO registry entry
+    $s = if ($whfbNGCKey -eq "YES") { "PASS" }
+         elseif ($whfbMDMActive -or $whfbPolicy -eq 1) { "WARN" }   # Policy pushed but user not enrolled yet
+         else { "WARN" }
+    Add-Result "26B.1" "WHfB Enabled + Enrolled (Entra+MDM)" $s "NGC key registered: $whfbNGCKey | Intune CSP: $(if ($whfbMDMActive) {'Applied'} else {'Not detected'}) | GPO registry: $whfbPolicy | NGC key = user has active WHfB credential" "CE+"
+} else {
+    $s = if ($whfbPolicy -eq 1 -and $whfbNGCKey -eq "YES") { "PASS" }
+         elseif ($whfbPolicy -eq 1 -or $whfbNGCKey -eq "YES") { "WARN" }
+         else { "FAIL" }
+    Add-Result "26B.1" "Windows Hello for Business Enabled + Enrolled" $s "WHfB policy: $whfbPolicy | NGC key registered: $whfbNGCKey | Both required for active phishing-resistant MFA" "CE+"
+}
+
+# ---- Check 26B.2: WHfB backed by TPM ----
+# On Entra+MDM devices Intune pushes this via ./Device/Vendor/MSFT/PassportForWork CSP.
+# Check both the local policy key and the MDM CSP key.
+$whfbTPM    = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\PassportForWork" "RequireSecurityDevice"
+$whfbTPMCSP = Get-RegValue "HKLM:\SOFTWARE\Microsoft\PolicyManager\current\device\PassportForWork" "RequireSecurityDevice"
+$tpmRequired = ($whfbTPM -eq 1) -or ($whfbTPMCSP -eq 1)
+
+if ($Script:EntraJoined -and $Script:MDMEnrolled) {
+    $s = if ($tpmRequired) { "PASS" } elseif ($whfbNGCKey -eq "YES") { "WARN" } else { "WARN" }
+    Add-Result "26B.2" "WHfB: TPM Required (Hardware-Backed MFA)" $s "GPO key: $whfbTPM | Intune CSP: $whfbTPMCSP | Combined TPM required: $tpmRequired | NCSC: hardware-backed credentials preferred" "CE+"
+} else {
+    $s = if ($whfbTPM -eq 1) { "PASS" } else { "WARN" }
+    Add-Result "26B.2" "WHfB: TPM Required (Hardware-Backed MFA)" $s "RequireSecurityDevice: $whfbTPM | NCSC: hardware-backed credentials preferred over software" "CE+"
+}
 
 # Check 3: FIDO2 / security key support
 $fidoPolicy = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\FIDO" "Enabled"
