@@ -3328,7 +3328,6 @@ $summaryLines | Add-Content -Path $ReportPath
 function Write-FrameworkSection {
     param(
         [string]$SectionTitle,
-        [string]$ScoreLabel,
         [double]$Score,
         [object[]]$FrameworkResults
     )
@@ -3386,22 +3385,22 @@ function Write-FrameworkSection {
 
 # ---- CIS Level 1 Section ----
 if ($cisL1Count -gt 0) {
-    Write-FrameworkSection -SectionTitle "CIS LEVEL 1 REPORT" -ScoreLabel "CIS L1" -Score $cisL1Score -FrameworkResults $cisL1Results
+    Write-FrameworkSection -SectionTitle "CIS LEVEL 1 REPORT" -Score $cisL1Score -FrameworkResults $cisL1Results
 }
 
 # ---- CIS Level 2 Section ----
 if ($cisL2Count -gt 0) {
-    Write-FrameworkSection -SectionTitle "CIS LEVEL 2 REPORT" -ScoreLabel "CIS L2" -Score $l2Score -FrameworkResults $cisL2Results
+    Write-FrameworkSection -SectionTitle "CIS LEVEL 2 REPORT" -Score $l2Score -FrameworkResults $cisL2Results
 }
 
 # ---- Cyber Essentials Section ----
 if ($ceCount -gt 0) {
-    Write-FrameworkSection -SectionTitle "CYBER ESSENTIALS / CE+ REPORT" -ScoreLabel "CE/CE+" -Score $ceScore -FrameworkResults $ceResults
+    Write-FrameworkSection -SectionTitle "CYBER ESSENTIALS / CE+ REPORT" -Score $ceScore -FrameworkResults $ceResults
 }
 
 # ---- NCSC Alignment Section ----
 if ($ncscCount -gt 0) {
-    Write-FrameworkSection -SectionTitle "NCSC ALIGNMENT REPORT" -ScoreLabel "NCSC" -Score $ncscScore -FrameworkResults $ncscResults
+    Write-FrameworkSection -SectionTitle "NCSC ALIGNMENT REPORT" -Score $ncscScore -FrameworkResults $ncscResults
 }
 
 # ============================================================
