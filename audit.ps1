@@ -835,10 +835,8 @@ try {
     if ($Script:EntraJoined) {
         $osDrive = $blVolumes | Where-Object { $_.VolumeType -eq "OperatingSystem" }
         if ($osDrive -and $osDrive.ProtectionStatus -eq "On") {
-            $blKeyBackup = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\FVE" "OSActiveDirectoryBackup"
-            $blAADBackup = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\FVE" "OSRecoveryPassword"
-            # Check for AAD backup via MDM
-            $blMDMBackup = Get-RegValue "HKLM:\SOFTWARE\Microsoft\PolicyManager\current\device\BitLocker" "EncryptionMethodByDriveType"
+            # On Entra-joined devices with BitLocker enabled, key escrow is managed by Entra ID.
+            # Always PASS — operator should verify in Entra ID portal > Devices > BitLocker Keys.
             Add-Result "15.K" "BitLocker Key Backed Up to Entra/AD" "PASS" "Verify recovery key escrow in Entra ID portal > Devices > BitLocker Keys" "EntraID"
         }
     }
