@@ -165,6 +165,10 @@ function Get-DsregStatus {
 }
 
 # ---- Reporting helper: ASCII progress bar ----
+# Uses Unicode block elements (U+2588 full block, U+2591 light shade).
+# These render correctly in Windows Terminal, PowerShell ISE, and most
+# modern editors. On legacy consoles that lack Unicode support the bar
+# will still display as rectangular glyphs of differing density.
 function Get-ProgressBar {
     param([double]$Percent, [int]$Width = 30)
     $filled = [math]::Floor($Percent / 100 * $Width)
