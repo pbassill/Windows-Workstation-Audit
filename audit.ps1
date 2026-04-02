@@ -3301,7 +3301,7 @@ Add-Result "62.11" "Hardened UNC Paths" $s "CIS 18.3.8: NETLOGON=$(if ($netlogon
 # 62.12 NetBT NodeType
 $val = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\NetBT\Parameters" "NodeType"
 $s   = if ($val -eq 2) { "PASS" } else { "WARN" }
-Add-Result "62.12" "NetBT NodeType Configuration" $s "CIS 18.3.5: NodeType: $(if ($null -eq $val) {'Not set'} else {$val}) (2=P-node)" "CIS"
+Add-Result "62.12" "NetBT NodeType: P-node Configuration" $s "CIS 18.3.5: NodeType: $(if ($null -eq $val) {'Not set'} else {$val}) (2=P-node)" "CIS"
 
 # ============================================================
 #  SECTION 63: CIS L1 - ADMINISTRATIVE TEMPLATES (SYSTEM)  [CIS]
@@ -3476,7 +3476,7 @@ Add-Result "64.21" "Block Non-Domain Network Connection" $s "CIS 18.5.21.1: fBlo
 # 64.22 Cloud content: Turn off cloud consumer account state content
 $val = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CloudContent" "DisableConsumerAccountStateContent"
 $s   = if ($val -eq 1) { "PASS" } else { "WARN" }
-Add-Result "64.22" "Cloud Consumer Content Disabled" $s "CIS 18.9.14.1: DisableConsumerAccountStateContent: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+Add-Result "64.22" "Cloud Consumer Content Disabled" $s "CIS 18.9.12.1: DisableConsumerAccountStateContent: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
 
 # ============================================================
 #  SECTION 65: CIS L1 - SYSTEM SERVICES (MISSING)  [CIS]
@@ -3727,10 +3727,10 @@ $summaryLines = @(
     "  60.  Additional Defender      (CIS L1/L2)",
     "  61.  CIS L1 User Rights       (CIS L1 2.2)",
     "  62.  CIS L1 Security Options  (CIS L1 2.3/18.3)",
-    "  63.  CIS L1 Admin Templ System (CIS L1 18.1/18.8)",
-    "  64.  CIS L1 Admin Templ WinCmp (CIS L1 18.5/18.9)",
+    "  63.  CIS L1 Admin Tmpl System  (CIS L1 18.1/18.8)",
+    "  64.  CIS L1 Admin Tmpl WinCo  (CIS L1 18.5/18.9)",
     "  65.  CIS L1 System Services    (CIS L1 5.x)",
-    "  66.  CIS L1 Admin Templ User   (CIS L1 19.x)",
+    "  66.  CIS L1 Admin Tmpl User   (CIS L1 19.x)",
     "========================================================================"
 )
 
