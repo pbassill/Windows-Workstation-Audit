@@ -3348,6 +3348,51 @@ $val = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\NetBT\Parameters" "
 $s   = if ($val -eq 2) { "PASS" } else { "WARN" }
 Add-Result "62.12" "NetBT NodeType: P-node Configuration" $s "CIS 18.3.5: NodeType: $(if ($null -eq $val) {'Not set'} else {$val}) (2=P-node)" "CIS"
 
+# 62.13 Accounts: Limit blank password use to console logon only
+$val = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" "LimitBlankPasswordUse"
+$s   = if ($val -eq 1 -or $null -eq $val) { "PASS" } else { "FAIL" }
+Add-Result "62.13" "Limit Blank Password to Console Only" $s "CIS 2.3.1.3: LimitBlankPasswordUse: $(if ($null -eq $val) {'Default (1)'} else {$val}) (1=Console only)" "CIS"
+
+# 62.14 Network access: Restrict anonymous access to Named Pipes and Shares
+$val = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters" "RestrictNullSessAccess"
+$s   = if ($val -eq 1 -or $null -eq $val) { "PASS" } else { "FAIL" }
+Add-Result "62.14" "Restrict Anonymous Named Pipes/Shares" $s "CIS 2.3.10.6: RestrictNullSessAccess: $(if ($null -eq $val) {'Default (1)'} else {$val}) (1=Restricted)" "CIS"
+
+# 62.15 Interactive logon: Machine inactivity limit <= 900 seconds
+$val = Get-RegValue "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" "InactivityTimeoutSecs"
+$s   = if ($null -ne $val -and [int]$val -ge 1 -and [int]$val -le 900) { "PASS" } else { "WARN" }
+Add-Result "62.15" "Machine Inactivity Limit <= 900s" $s "CIS 2.3.7.4: InactivityTimeoutSecs: $(if ($null -eq $val) {'Not set'} else {"${val}s"}) (<=900)" "CIS"
+
+# 62.16 Interactive logon: Message text for users
+$val = Get-RegValue "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" "LegalNoticeText"
+$s   = if ($null -ne $val -and $val -ne "") { "PASS" } else { "WARN" }
+Add-Result "62.16" "Legal Notice Text Configured" $s "CIS 2.3.7.5: LegalNoticeText: $(if ($null -eq $val -or $val -eq '') {'Not set'} else {'Configured'})" "CIS"
+
+# 62.17 Interactive logon: Message title for users
+$val = Get-RegValue "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" "LegalNoticeCaption"
+$s   = if ($null -ne $val -and $val -ne "") { "PASS" } else { "WARN" }
+Add-Result "62.17" "Legal Notice Caption Configured" $s "CIS 2.3.7.6: LegalNoticeCaption: $(if ($null -eq $val -or $val -eq '') {'Not set'} else {'Configured'})" "CIS"
+
+# 62.18 Network access: Remotely accessible registry paths
+$val = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\SecurePipeServers\Winreg\AllowedExactPaths" "Machine"
+$s   = if ($null -ne $val) { "PASS" } else { "WARN" }
+Add-Result "62.18" "Remotely Accessible Registry Paths" $s "CIS 2.3.10.8: AllowedExactPaths: $(if ($null -eq $val) {'Not set'} else {'Configured'})" "CIS"
+
+# 62.19 Network access: Remotely accessible registry paths and sub-paths
+$val = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\SecurePipeServers\Winreg\AllowedPaths" "Machine"
+$s   = if ($null -ne $val) { "PASS" } else { "WARN" }
+Add-Result "62.19" "Remotely Accessible Reg Paths/Sub-Paths" $s "CIS 2.3.10.9: AllowedPaths: $(if ($null -eq $val) {'Not set'} else {'Configured'})" "CIS"
+
+# 62.20 Network security: Allow Local System to use computer identity for NTLM
+$val = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" "UseMachineId"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "62.20" "NTLM: Use Computer Identity" $s "CIS 2.3.11.1: UseMachineId: $(if ($null -eq $val) {'Not set'} else {$val}) (1=Enabled)" "CIS"
+
+# 62.21 UAC: Only elevate UIAccess apps installed in secure locations
+$val = Get-RegValue "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" "EnableSecureUIAPaths"
+$s   = if ($val -eq 1 -or $null -eq $val) { "PASS" } else { "FAIL" }
+Add-Result "62.21" "UAC: UIAccess Secure Location Only" $s "CIS 2.3.17.6: EnableSecureUIAPaths: $(if ($null -eq $val) {'Default (1)'} else {$val}) (1=Secure locations only)" "CIS"
+
 # ============================================================
 #  SECTION 63: CIS L1 - ADMINISTRATIVE TEMPLATES (SYSTEM)  [CIS]
 # ============================================================
@@ -3541,6 +3586,15 @@ $cisL1Services = @(
     @{ Name = "lfsvc";       Label = "Geolocation Service"     }
     @{ Name = "MapsBroker";  Label = "Downloaded Maps Manager" }
     @{ Name = "PcaSvc";      Label = "Program Compat Assistant" }
+    @{ Name = "LxssManager"; Label = "Windows Subsystem Linux" }
+    @{ Name = "SharedAccess"; Label = "Internet Connection Sharing" }
+    @{ Name = "RemoteRegistry"; Label = "Remote Registry"      }
+    @{ Name = "FTPSVC";      Label = "FTP Publishing Service"  }
+    @{ Name = "W3SVC";       Label = "World Wide Web Publishing" }
+    @{ Name = "XblAuthManager"; Label = "Xbox Live Auth Manager" }
+    @{ Name = "XblGameSave"; Label = "Xbox Live Game Save"     }
+    @{ Name = "XboxGipSvc";  Label = "Xbox Accessory Mgmt"    }
+    @{ Name = "XboxNetApiSvc"; Label = "Xbox Live Networking"  }
 )
 
 $svcIdx = 1
