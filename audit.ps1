@@ -30,11 +30,13 @@
 # ============================================================
 #  INITIALISATION
 # ============================================================
-$ScriptVersion = "5.0.0"
+$ScriptVersion = "5.1.0"
 $Timestamp     = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
 $ReportPath    = "$env:USERPROFILE\OTY_Heavy_Industries_Audit_$Timestamp.txt"
+$CsvPath       = "$env:USERPROFILE\OTY_Heavy_Industries_Audit_$Timestamp.csv"
 $SecCfg        = "$env:TEMP\oty_secedit_$Timestamp.cfg"
 $Results       = [System.Collections.Generic.List[PSCustomObject]]::new()
+$AuditStartTime = Get-Date
 
 # Entra ID context flags - populated in Section 27, referenced throughout
 $Script:EntraJoined      = $false
@@ -160,6 +162,47 @@ function Get-DsregStatus {
         }
     }
     return $result
+}
+
+# ---- Reporting helper: ASCII progress bar ----
+# Uses Unicode block elements (U+2588 full block, U+2591 light shade).
+# These render correctly in Windows Terminal, PowerShell ISE, and most
+# modern editors. On legacy consoles that lack Unicode support the bar
+# will still display as rectangular glyphs of differing density.
+function Get-ProgressBar {
+    param([double]$Percent, [int]$Width = 30)
+    $filled = [math]::Floor($Percent / 100 * $Width)
+    $empty  = $Width - $filled
+    $bar    = ([string][char]0x2588) * $filled + ([string][char]0x2591) * $empty
+    return $bar
+}
+
+# ---- Reporting helper: risk rating from score ----
+function Get-RiskRating {
+    param([double]$Score)
+    if     ($Score -ge 90) { return @{ Label = "LOW";      Color = "Green"  } }
+    elseif ($Score -ge 75) { return @{ Label = "MODERATE"; Color = "Yellow" } }
+    elseif ($Score -ge 50) { return @{ Label = "HIGH";     Color = "Red"    } }
+    else                   { return @{ Label = "CRITICAL"; Color = "Red"    } }
+}
+
+# ---- Reporting helper: write coloured + file output ----
+function Write-ReportLine {
+    param(
+        [string]$Text,
+        [string]$Color = "Cyan",
+        [switch]$NoNewline
+    )
+    if ($NoNewline) { Write-Host $Text -ForegroundColor $Color -NoNewline }
+    else            { Write-Host $Text -ForegroundColor $Color }
+    Add-Content -Path $ReportPath -Value $Text
+}
+
+# ---- Reporting helper: write a divider ----
+function Write-Divider {
+    param([string]$Char = "=", [int]$Width = 72)
+    $line = "  " + ($Char * $Width)
+    Write-ReportLine $line
 }
 
 # ============================================================
@@ -4603,8 +4646,12 @@ Add-Result "79.4" "Prevent users from sharing files within their prof" $s "CIS 1
 # ============================================================
 if (Test-Path $SecCfg) { Remove-Item $SecCfg -Force -ErrorAction SilentlyContinue }
 
+$AuditEndTime = Get-Date
+$AuditDuration = $AuditEndTime - $AuditStartTime
+$DurationStr   = "{0:mm\:ss}" -f $AuditDuration
+
 # ============================================================
-#  SUMMARY
+#  CALCULATE STATISTICS
 # ============================================================
 $totalChecks   = $Results.Count
 $passCount     = ($Results | Where-Object { $_.Status -eq "PASS" }).Count
@@ -4626,171 +4673,211 @@ $ncscCount     = $ncscResults.Count
 $ceCount       = $ceResults.Count
 $entraCount    = $entraResults.Count
 
-# ---- Overall score: PASS / all scoreable checks ----
+# ---- Overall score ----
 $score = if ($scoreable -gt 0) { [math]::Round(($passCount / $scoreable) * 100, 1) } else { 0 }
 
-# ---- CIS L1 score ----
-$cisL1Score = if ($cisL1Count -gt 0) {
-    [math]::Round((($cisL1Results | Where-Object { $_.Status -eq "PASS" }).Count / $cisL1Count) * 100, 1)
-} else { 0 }
+# ---- Per-framework scores ----
+$cisL1Pass  = ($cisL1Results | Where-Object { $_.Status -eq "PASS" }).Count
+$cisL1Fail  = ($cisL1Results | Where-Object { $_.Status -eq "FAIL" }).Count
+$cisL1Warn  = ($cisL1Results | Where-Object { $_.Status -eq "WARN" }).Count
+$cisL1Score = if ($cisL1Count -gt 0) { [math]::Round(($cisL1Pass / $cisL1Count) * 100, 1) } else { 0 }
 
-# ---- CIS L2 score ----
-$l2Score = if ($cisL2Count -gt 0) {
-    [math]::Round((($cisL2Results | Where-Object { $_.Status -eq "PASS" }).Count / $cisL2Count) * 100, 1)
-} else { 0 }
+$cisL2Pass  = ($cisL2Results | Where-Object { $_.Status -eq "PASS" }).Count
+$cisL2Fail  = ($cisL2Results | Where-Object { $_.Status -eq "FAIL" }).Count
+$cisL2Warn  = ($cisL2Results | Where-Object { $_.Status -eq "WARN" }).Count
+$l2Score    = if ($cisL2Count -gt 0) { [math]::Round(($cisL2Pass / $cisL2Count) * 100, 1) } else { 0 }
 
-# ---- CE/CE+ score ----
-$ceScore = if ($ceCount -gt 0) {
-    [math]::Round((($ceResults | Where-Object { $_.Status -eq "PASS" }).Count / $ceCount) * 100, 1)
-} else { 0 }
+$cePass  = ($ceResults | Where-Object { $_.Status -eq "PASS" }).Count
+$ceFail  = ($ceResults | Where-Object { $_.Status -eq "FAIL" }).Count
+$ceWarn  = ($ceResults | Where-Object { $_.Status -eq "WARN" }).Count
+$ceScore = if ($ceCount -gt 0) { [math]::Round(($cePass / $ceCount) * 100, 1) } else { 0 }
 
-# ---- Entra/M365 score ----
-$entraScore = if ($entraCount -gt 0) {
-    [math]::Round((($entraResults | Where-Object { $_.Status -eq "PASS" }).Count / $entraCount) * 100, 1)
-} else { 0 }
+$entraPass  = ($entraResults | Where-Object { $_.Status -eq "PASS" }).Count
+$entraFail  = ($entraResults | Where-Object { $_.Status -eq "FAIL" }).Count
+$entraWarn  = ($entraResults | Where-Object { $_.Status -eq "WARN" }).Count
+$entraScore = if ($entraCount -gt 0) { [math]::Round(($entraPass / $entraCount) * 100, 1) } else { 0 }
 
-# ---- NCSC alignment score ----
-# NCSC checks use WARN to mean "CIS-compliant but not yet NCSC-optimal" rather than
-# "broken". A system configured to CIS standards will score mostly WARNs on NCSC checks
-# (e.g. length=14 passes CIS but WARNs on NCSC's 15-char threshold). Treating all WARNs
-# as 0% would be misleading — a WARN counts as 0.5 (partial alignment) so the score
-# reflects the genuine gap between current posture and full NCSC alignment.
-$ncscScore = if ($ncscCount -gt 0) {
-    $ncscPass    = ($ncscResults | Where-Object { $_.Status -eq "PASS" }).Count
-    $ncscWarn    = ($ncscResults | Where-Object { $_.Status -eq "WARN" }).Count
-    $ncscFail    = ($ncscResults | Where-Object { $_.Status -eq "FAIL" }).Count
-    # Weighted: PASS=1, WARN=0.5, FAIL=0
-    $ncscWeighted = ($ncscPass * 1.0) + ($ncscWarn * 0.5)
-    [math]::Round(($ncscWeighted / $ncscCount) * 100, 1)
-} else { 0 }
-
-# Separate NCSC breakdown figures for display
+# ---- NCSC alignment score (weighted: PASS=1, WARN=0.5, FAIL=0) ----
 $ncscPassCount = ($ncscResults | Where-Object { $_.Status -eq "PASS" }).Count
 $ncscWarnCount = ($ncscResults | Where-Object { $_.Status -eq "WARN" }).Count
 $ncscFailCount = ($ncscResults | Where-Object { $_.Status -eq "FAIL" }).Count
+$ncscScore = if ($ncscCount -gt 0) {
+    $ncscWeighted = ($ncscPassCount * 1.0) + ($ncscWarnCount * 0.5)
+    [math]::Round(($ncscWeighted / $ncscCount) * 100, 1)
+} else { 0 }
 
-$summaryLines = @(
+# ---- Risk rating ----
+$overallRisk = Get-RiskRating $score
+
+# ============================================================
+#  EXECUTIVE SUMMARY
+# ============================================================
+Write-Host ""
+$execLines = @(
     "",
-    "========================================================================",
-    "  OTY HEAVY INDUSTRIES - AUDIT SUMMARY",
-    "========================================================================",
-    "  Total Checks          : $totalChecks",
-    "  PASS                  : $passCount",
-    "  FAIL                  : $failCount",
-    "  WARN                  : $warnCount",
-    "  INFO                  : $infoCount (informational, not scored)",
-    "  -----------------------------------------------------------------------",
-    "  CIS Level 1 Checks    : $cisL1Count  (INFO excluded)",
-    "  CIS Level 2 Checks    : $cisL2Count  (INFO excluded)",
-    "  NCSC Checks           : $ncscCount   (INFO excluded)",
-    "  CE / CE+ Checks       : $ceCount     (INFO excluded)",
-    "  Entra / M365 Checks   : $entraCount  (INFO excluded)",
-    "  -----------------------------------------------------------------------",
-    "  Overall Compliance    : $score%  (PASS / all scoreable checks)",
-    "  CIS Level 1 Score     : $cisL1Score%",
-    "  CIS Level 2 Score     : $l2Score%",
-    "  CE / CE+ Score        : $ceScore%",
-    "  Entra / M365 Score    : $entraScore%",
-    "  NCSC Alignment        : $ncscScore%  (PASS=full, WARN=partial, FAIL=none)",
-    "    NCSC breakdown      : PASS=$ncscPassCount  WARN=$ncscWarnCount  FAIL=$ncscFailCount",
-    "    NOTE: WARN on NCSC = CIS-compliant but not yet NCSC-optimal (e.g. length=14",
-    "          passes CIS but NCSC recommends 15+ chars). Improve WARNs to reach full",
-    "          NCSC alignment. See ncsc.gov.uk/collection/passwords for guidance.",
-    "========================================================================",
-    "  Device Context:",
-    "  Join Type        : $joinType",
-    "  Tenant           : $($Script:TenantName) ($($Script:TenantID))",
-    "  MDM Enrolled     : $($Script:MDMEnrolled) $(if ($Script:MDMUrl) {"($($Script:MDMUrl))"} else {''})",
-    "  PRT Present      : $($Script:PRTPresent)",
-    "  Device ID        : $($Script:DeviceID)",
-    "========================================================================",
-    "  Sections Audited:",
-    "   1.  Password Policy          (CIS L1 | CE2 | NCSC - dual framework)",
-    "   2.  Account Lockout          (CIS L1 | CE2 | Smart Lockout-aware)",
-    "   3.  Remote Desktop           (CIS L1 | CE1 | CE+)",
-    "   4.  Local Accounts           (CIS L1 | CE3 | CE+)",
-    "   5.  Windows Firewall         (CIS L1 | CE1 | CE+)",
-    "   6.  Patch Management         (CIS L1 | CE5 | CE+ | WUfB)",
-    "   7.  SMBv1 Protocol           (CIS L1 | CE2)",
-    "   8.  AutoRun / AutoPlay       (CIS L1)",
-    "   9.  Insecure Services        (CIS L1 | CE2)",
-    "  10.  Admin Shares             (CIS L1)",
-    "  11.  User Account Control     (CIS L1 | CE3)",
-    "  12.  Security Protocols       (CIS L1 | CE2 | NTLM-aware)",
-    "  13.  Audit Policy             (CIS L1 17.x)",
-    "  14.  Malware Protection       (CIS L1 | CE4 | CE+)",
-    "  15.  BitLocker / Encryption   (CIS L1 | CE2 | Entra Key Backup)",
-    "  16.  Secure Boot & UEFI       (CIS L1 | CE+)",
-    "  17.  PowerShell Security      (CIS L1 | CE+)",
-    "  18.  Application Control      (CIS L1 | CE2 | CE+)",
-    "  19.  Event Log Configuration  (CIS L1 18.x)",
-    "  20.  Credential Protection    (CIS L1 | CE+ | PRT-aware)",
-    "  21.  Screen Lock / Session    (CIS L1 | CE2)",
-    "  22.  Unnecessary Features     (CE2 | CE+)",
-    "  23.  Network Security         (CIS L1 | CE1 | CE2 | IPv6-aware)",
-    "  24.  Memory & Exploit Protect (CIS L1)",
-    "  25.  CE Secure Configuration  (CE2 | CE+)",
-    "  26.  Cyber Essentials Plus    (CE+)",
-    " 26A.  CE+ Account Separation   (CE+ | NCSC)",
-    " 26B.  CE+ 2FA/MFA              (CE+ | NCSC)",
-    "  27.  Entra ID Device Identity (EntraID | CE+)",
-    "  28.  Intune / MDM Enrolment   (EntraID | CE+)",
-    "  29.  Windows Hello for Bus.   (EntraID | CE+)",
-    "  30.  Defender for Endpoint    (EntraID | CE+)",
-    "  31.  Microsoft 365 / Office   (EntraID | CE+)",
-    "  32.  CA & Device Compliance   (EntraID | CE+)",
-    "  33.  CIS L2 User Rights       (CIS L2)",
-    "  34.  CIS L2 Sec Options       (CIS L2)",
-    "  35.  CIS L2 Advanced Audit    (CIS L2 17.x)",
-    "  36.  TLS/SSL & Cipher Hard.   (CIS L2 | CE+)",
-    "  37.  Microsoft Edge Security  (CIS L2 | CE+)",
-    "  38.  Peripheral & Device Ctrl (CIS L2 | CE+)",
-    "  39.  Windows Privacy Hard.    (CIS L2)",
-    "  40.  Remote Assistance        (CIS L2)",
-    "  41.  DNS Client Security      (CIS L2)",
-    "  42.  Scheduled Tasks          (CIS L2)",
-    "  43.  MSS Legacy Settings      (CIS L2)",
-    "  44.  CIS L2 Network Protocol  (CIS L2)",
-    "  45.  ASR Specific Rules       (CIS L1/L2)",
-    "  46.  System Exploit Protect   (CIS L2)",
-    "  47.  Kernel DMA Protection    (CIS L2 | CE+)",
-    "  48.  LAPS Configuration       (CIS L1 | CE3)",
-    "  49.  Network List Manager     (CIS L2)",
-    "  50.  Delivery Optimisation    (CIS L2)",
-    "  51.  NTP / Time Security      (CIS L2)",
-    "  52.  Defender App Guard       (CIS L2)",
-    "  53.  RPC & DCOM Security      (CIS L2)",
-    "  54.  Group Policy Infra.      (CIS L2)",
-    "  55.  Print Security           (CIS L1/L2)",
-    "  56.  Windows Copilot / AI     (CIS L2)",
-    "  57.  File & Reg Permissions   (CIS L2)",
-    "  58.  Internet Explorer        (CIS L1)",
-    "  59.  Windows Event Forwarding (CIS L2)",
-    "  60.  Additional Defender      (CIS L1/L2)",
-    "  61.  CIS L1 User Rights       (CIS L1 2.2)",
-    "  62.  CIS L1 Security Options  (CIS L1 2.3/18.3)",
-    "  63.  CIS L1 Admin Tmpl System  (CIS L1 18.1/18.8)",
-    "  64.  CIS L1 Admin Tmpl WinCo  (CIS L1 18.5/18.9)",
-    "  65.  CIS L1 System Services    (CIS L1 5.x)",
-    "  66.  CIS L1 Admin Tmpl User   (CIS L1 19.x)",
-    "  67.  CIS L1 Data/Telemetry    (CIS L1 18.9.17)",
-    "  68.  CIS L1 Device Guard/VBS  (CIS L1 18.8.5)",
-    "  69.  CIS L1 Logon/Cred UI     (CIS L1 18.8.28/18.9.15)",
-    "  70.  CIS L1 Addit. Admin Tmpl (CIS L1 18.x)",
-    "  71.  CIS L1 Lockout/Rights/Sec (CIS L1 1.2/2.2/2.3)",
-    "  72.  CIS L1 FW Policy Logging  (CIS L1 9.x)",
-    "  73.  CIS L1 Audit Policy Add'l (CIS L1 17.x)",
-    "  74.  CIS L1 Personalization     (CIS L1 18.1)",
-    "  75.  CIS L1 MSS/Network/SMB    (CIS L1 18.5/18.6)",
-    "  76.  CIS L1 Printer Security    (CIS L1 18.7)",
-    "  77.  CIS L1 System Templates    (CIS L1 18.9)",
-    "  78.  CIS L1 Windows Components  (CIS L1 18.10)",
-    "  79.  CIS L1 WiFi/User Templates (CIS L1 18.11/19.7)",
-    "========================================================================"
+    "  ========================================================================",
+    "  OTY HEAVY INDUSTRIES - AUDIT REPORT",
+    "  Version $ScriptVersion  |  $(Get-Date -Format 'dd MMM yyyy HH:mm') UTC",
+    "  ========================================================================"
 )
+foreach ($l in $execLines) { Write-ReportLine $l }
 
-foreach ($line in $summaryLines) { Write-Host $line -ForegroundColor Cyan }
-$summaryLines | Add-Content -Path $ReportPath
+Write-Host ""
+Write-ReportLine "  EXECUTIVE SUMMARY" "White"
+Write-Divider "-"
+
+$riskLine = "  Risk Rating       : $($overallRisk.Label)"
+Write-Host $riskLine -ForegroundColor $overallRisk.Color
+Add-Content -Path $ReportPath -Value $riskLine
+
+$scoreLine = "  Overall Score     : $score%  ($passCount of $scoreable scoreable checks passed)"
+$scoreColor = if ($score -ge 90) { "Green" } elseif ($score -ge 75) { "Yellow" } else { "Red" }
+Write-Host $scoreLine -ForegroundColor $scoreColor
+Add-Content -Path $ReportPath -Value $scoreLine
+
+$bar = Get-ProgressBar $score
+$barLine = "                      $bar $score%"
+Write-Host $barLine -ForegroundColor $scoreColor
+Add-Content -Path $ReportPath -Value $barLine
+
+Write-ReportLine ""
+Write-ReportLine "  Total Checks      : $totalChecks"
+Write-ReportLine ("  Passed            : {0,-6} | Failed : {1,-6} | Warnings : {2,-6} | Info : {3}" -f $passCount, $failCount, $warnCount, $infoCount)
+Write-ReportLine "  Audit Duration    : $DurationStr"
+
+# ============================================================
+#  SCORE DASHBOARD
+# ============================================================
+Write-ReportLine ""
+Write-Divider "="
+Write-ReportLine "  FRAMEWORK SCORE DASHBOARD" "White"
+Write-Divider "-"
+Write-ReportLine ""
+
+# Column headers
+$dashHeader = "  {0,-22} {1,6}  {2,-30}  {3}" -f "Framework", "Score", "Progress", "Pass / Fail / Warn"
+Write-ReportLine $dashHeader "White"
+Write-ReportLine ("  " + ("-" * 72))
+
+# Dashboard rows - helper function for consistency
+function Write-DashboardRow {
+    param([string]$Name, [double]$Sc, [int]$P, [int]$F, [int]$W, [int]$T)
+    if ($T -eq 0) { return }
+    $bar   = Get-ProgressBar $Sc
+    $color = if ($Sc -ge 90) { "Green" } elseif ($Sc -ge 75) { "Yellow" } else { "Red" }
+    $line  = "  {0,-22} {1,5:0.0}%  {2}  {3,4}P / {4,4}F / {5,4}W  ({6})" -f $Name, $Sc, $bar, $P, $F, $W, $T
+    Write-Host $line -ForegroundColor $color
+    Add-Content -Path $ReportPath -Value $line
+}
+
+Write-DashboardRow "CIS Level 1"        $cisL1Score $cisL1Pass $cisL1Fail $cisL1Warn $cisL1Count
+Write-DashboardRow "CIS Level 2"        $l2Score    $cisL2Pass $cisL2Fail $cisL2Warn $cisL2Count
+Write-DashboardRow "Cyber Essentials"    $ceScore    $cePass    $ceFail    $ceWarn    $ceCount
+Write-DashboardRow "Entra ID / M365"    $entraScore $entraPass $entraFail $entraWarn $entraCount
+
+# NCSC gets special treatment due to weighted scoring
+if ($ncscCount -gt 0) {
+    $bar   = Get-ProgressBar $ncscScore
+    $color = if ($ncscScore -ge 90) { "Green" } elseif ($ncscScore -ge 75) { "Yellow" } else { "Red" }
+    $line  = "  {0,-22} {1,5:0.0}%  {2}  {3,4}P / {4,4}F / {5,4}W  ({6})" -f "NCSC Alignment*", $ncscScore, $bar, $ncscPassCount, $ncscFailCount, $ncscWarnCount, $ncscCount
+    Write-Host $line -ForegroundColor $color
+    Add-Content -Path $ReportPath -Value $line
+}
+
+Write-ReportLine ""
+Write-ReportLine "  * NCSC uses weighted scoring: PASS = full, WARN = partial (0.5), FAIL = none."
+Write-ReportLine "    A WARN on NCSC means CIS-compliant but not yet NCSC-optimal (e.g. password"
+Write-ReportLine "    length 14 passes CIS but NCSC recommends 15+). See ncsc.gov.uk/collection/passwords"
+
+# ============================================================
+#  DEVICE CONTEXT
+# ============================================================
+Write-ReportLine ""
+Write-Divider "="
+Write-ReportLine "  DEVICE CONTEXT" "White"
+Write-Divider "-"
+Write-ReportLine "  Hostname          : $env:COMPUTERNAME"
+Write-ReportLine "  User              : $env:USERNAME"
+Write-ReportLine "  Join Type         : $joinType"
+Write-ReportLine "  Tenant            : $($Script:TenantName) ($($Script:TenantID))"
+Write-ReportLine "  MDM Enrolled      : $($Script:MDMEnrolled) $(if ($Script:MDMUrl) {"($($Script:MDMUrl))"} else {''})"
+Write-ReportLine "  PRT Present       : $($Script:PRTPresent)"
+Write-ReportLine "  Device ID         : $($Script:DeviceID)"
+
+# ============================================================
+#  PRIORITY REMEDIATION — TOP FAILURES
+# ============================================================
+$failedItems = $Results | Where-Object { $_.Status -eq "FAIL" }
+if ($failedItems.Count -gt 0) {
+    Write-ReportLine ""
+    Write-Divider "="
+    Write-ReportLine "  PRIORITY REMEDIATION  ($failCount failed controls)" "White"
+    Write-Divider "-"
+    Write-ReportLine ""
+
+    # Group failures by framework for actionable prioritisation
+    $failByFramework = $failedItems | Group-Object Framework | Sort-Object Count -Descending
+    foreach ($group in $failByFramework) {
+        $fwName = switch ($group.Name) {
+            "CIS"     { "CIS Level 1" }
+            "CIS-L2"  { "CIS Level 2" }
+            "CE"      { "Cyber Essentials" }
+            "CE+"     { "Cyber Essentials Plus" }
+            "NCSC"    { "NCSC Alignment" }
+            "EntraID" { "Entra ID / M365" }
+            default   { $group.Name }
+        }
+        $subHead = "  $fwName ($($group.Count) failures):"
+        Write-Host $subHead -ForegroundColor Red
+        Add-Content -Path $ReportPath -Value $subHead
+
+        $counter = 1
+        foreach ($r in $group.Group) {
+            $l = "    ${counter}. [$($r.ID)] $($r.Description)"
+            Write-Host $l -ForegroundColor Red
+            Add-Content -Path $ReportPath -Value $l
+            $d = "       $($r.Detail)"
+            Write-Host $d -ForegroundColor DarkRed
+            Add-Content -Path $ReportPath -Value $d
+            $counter++
+        }
+        Write-ReportLine ""
+    }
+}
+
+# ============================================================
+#  WARNINGS SUMMARY
+# ============================================================
+$warnItems = $Results | Where-Object { $_.Status -eq "WARN" }
+if ($warnItems.Count -gt 0) {
+    Write-Divider "="
+    Write-ReportLine "  WARNINGS REQUIRING REVIEW  ($warnCount controls)" "White"
+    Write-Divider "-"
+    Write-ReportLine ""
+
+    $warnByFramework = $warnItems | Group-Object Framework | Sort-Object Count -Descending
+    foreach ($group in $warnByFramework) {
+        $fwName = switch ($group.Name) {
+            "CIS"     { "CIS Level 1" }
+            "CIS-L2"  { "CIS Level 2" }
+            "CE"      { "Cyber Essentials" }
+            "CE+"     { "Cyber Essentials Plus" }
+            "NCSC"    { "NCSC Alignment" }
+            "EntraID" { "Entra ID / M365" }
+            default   { $group.Name }
+        }
+        $subHead = "  $fwName ($($group.Count) warnings):"
+        Write-Host $subHead -ForegroundColor Yellow
+        Add-Content -Path $ReportPath -Value $subHead
+
+        foreach ($r in $group.Group) {
+            $l = "    [$($r.ID)] $($r.Description) - $($r.Detail)"
+            Write-Host $l -ForegroundColor Yellow
+            Add-Content -Path $ReportPath -Value $l
+        }
+        Write-ReportLine ""
+    }
+}
 
 # ============================================================
 #  PER-FRAMEWORK DETAILED REPORT SECTIONS
@@ -4803,34 +4890,42 @@ function Write-FrameworkSection {
         [double]$Score,
         [object[]]$FrameworkResults
     )
-    $header = @(
-        "",
-        "========================================================================",
-        "  $SectionTitle",
-        "========================================================================",
-        "  Score: $Score%  |  Total Checks: $($FrameworkResults.Count)"
-    )
+    $bar   = Get-ProgressBar $Score
+    $color = if ($Score -ge 90) { "Green" } elseif ($Score -ge 75) { "Yellow" } else { "Red" }
     $passItems = $FrameworkResults | Where-Object { $_.Status -eq "PASS" }
     $failItems = $FrameworkResults | Where-Object { $_.Status -eq "FAIL" }
     $warnItems = $FrameworkResults | Where-Object { $_.Status -eq "WARN" }
-    $header += "  PASS: $($passItems.Count)  |  FAIL: $($failItems.Count)  |  WARN: $($warnItems.Count)"
-    $header += "------------------------------------------------------------------------"
 
-    foreach ($h in $header) { Write-Host $h -ForegroundColor Cyan }
-    $header | Add-Content -Path $ReportPath
+    Write-ReportLine ""
+    Write-Divider "="
+    Write-ReportLine "  $SectionTitle" "White"
+    Write-Divider "-"
+
+    $scoreLine = "  Score: $Score%  $bar"
+    Write-Host $scoreLine -ForegroundColor $color
+    Add-Content -Path $ReportPath -Value $scoreLine
+
+    Write-ReportLine ("  Total: {0}  |  PASS: {1}  |  FAIL: {2}  |  WARN: {3}" -f $FrameworkResults.Count, $passItems.Count, $failItems.Count, $warnItems.Count)
+    Write-ReportLine ""
 
     if ($failItems.Count -gt 0) {
-        $subHead = "`n  FAILED:"
+        $subHead = "  FAILED ($($failItems.Count)):"
         Write-Host $subHead -ForegroundColor Red
         Add-Content -Path $ReportPath -Value $subHead
+        $counter = 1
         foreach ($r in $failItems) {
-            $l = "    [$($r.ID)] $($r.Description) - $($r.Detail)"
+            $l = "    ${counter}. [$($r.ID)] $($r.Description)"
             Write-Host $l -ForegroundColor Red
             Add-Content -Path $ReportPath -Value $l
+            $d = "       $($r.Detail)"
+            Write-Host $d -ForegroundColor DarkRed
+            Add-Content -Path $ReportPath -Value $d
+            $counter++
         }
+        Write-ReportLine ""
     }
     if ($warnItems.Count -gt 0) {
-        $subHead = "`n  WARNINGS:"
+        $subHead = "  WARNINGS ($($warnItems.Count)):"
         Write-Host $subHead -ForegroundColor Yellow
         Add-Content -Path $ReportPath -Value $subHead
         foreach ($r in $warnItems) {
@@ -4838,68 +4933,178 @@ function Write-FrameworkSection {
             Write-Host $l -ForegroundColor Yellow
             Add-Content -Path $ReportPath -Value $l
         }
+        Write-ReportLine ""
     }
     if ($passItems.Count -gt 0) {
-        $subHead = "`n  PASSED:"
+        $subHead = "  PASSED ($($passItems.Count)):"
         Write-Host $subHead -ForegroundColor Green
         Add-Content -Path $ReportPath -Value $subHead
         foreach ($r in $passItems) {
-            $l = "    [$($r.ID)] $($r.Description) - $($r.Detail)"
+            $l = "    [$($r.ID)] $($r.Description)"
             Write-Host $l -ForegroundColor Green
             Add-Content -Path $ReportPath -Value $l
         }
+        Write-ReportLine ""
     }
-
-    $footer = "========================================================================"
-    Write-Host $footer -ForegroundColor Cyan
-    Add-Content -Path $ReportPath -Value $footer
 }
 
 # ---- CIS Level 1 Section ----
 if ($cisL1Count -gt 0) {
-    Write-FrameworkSection -SectionTitle "CIS LEVEL 1 REPORT" -Score $cisL1Score -FrameworkResults $cisL1Results
+    Write-FrameworkSection -SectionTitle "CIS LEVEL 1 DETAILED REPORT" -Score $cisL1Score -FrameworkResults $cisL1Results
 }
 
 # ---- CIS Level 2 Section ----
 if ($cisL2Count -gt 0) {
-    Write-FrameworkSection -SectionTitle "CIS LEVEL 2 REPORT" -Score $l2Score -FrameworkResults $cisL2Results
+    Write-FrameworkSection -SectionTitle "CIS LEVEL 2 DETAILED REPORT" -Score $l2Score -FrameworkResults $cisL2Results
 }
 
 # ---- Cyber Essentials Section ----
 if ($ceCount -gt 0) {
-    Write-FrameworkSection -SectionTitle "CYBER ESSENTIALS / CE+ REPORT" -Score $ceScore -FrameworkResults $ceResults
+    Write-FrameworkSection -SectionTitle "CYBER ESSENTIALS / CE+ DETAILED REPORT" -Score $ceScore -FrameworkResults $ceResults
+}
+
+# ---- Entra ID / M365 Section ----
+if ($entraCount -gt 0) {
+    Write-FrameworkSection -SectionTitle "ENTRA ID / M365 DETAILED REPORT" -Score $entraScore -FrameworkResults $entraResults
 }
 
 # ---- NCSC Alignment Section ----
 if ($ncscCount -gt 0) {
-    Write-FrameworkSection -SectionTitle "NCSC ALIGNMENT REPORT" -Score $ncscScore -FrameworkResults $ncscResults
+    Write-FrameworkSection -SectionTitle "NCSC ALIGNMENT DETAILED REPORT" -Score $ncscScore -FrameworkResults $ncscResults
 }
 
 # ============================================================
-#  OVERALL FAILED & WARNING CONTROLS
+#  SECTIONS AUDITED (grouped by category)
 # ============================================================
+Write-ReportLine ""
+Write-Divider "="
+Write-ReportLine "  SECTIONS AUDITED" "White"
+Write-Divider "-"
+Write-ReportLine ""
+Write-ReportLine "  Core Security (CIS L1 | CE | NCSC):" "White"
+$coreLines = @(
+    "     1. Password Policy              (CIS L1 | CE2 | NCSC)",
+    "     2. Account Lockout              (CIS L1 | CE2 | Smart Lockout-aware)",
+    "     3. Remote Desktop               (CIS L1 | CE1 | CE+)",
+    "     4. Local Accounts               (CIS L1 | CE3 | CE+)",
+    "     5. Windows Firewall             (CIS L1 | CE1 | CE+)",
+    "     6. Patch Management             (CIS L1 | CE5 | CE+ | WUfB)",
+    "     7. SMBv1 Protocol               (CIS L1 | CE2)",
+    "     8. AutoRun / AutoPlay           (CIS L1)",
+    "     9. Insecure Services            (CIS L1 | CE2)",
+    "    10. Admin Shares                 (CIS L1)",
+    "    11. User Account Control         (CIS L1 | CE3)",
+    "    12. Security Protocols           (CIS L1 | CE2 | NTLM-aware)",
+    "    13. Audit Policy                 (CIS L1 17.x)",
+    "    14. Malware Protection           (CIS L1 | CE4 | CE+)",
+    "    15. BitLocker / Encryption       (CIS L1 | CE2 | Entra Key Backup)",
+    "    16. Secure Boot & UEFI           (CIS L1 | CE+)",
+    "    17. PowerShell Security          (CIS L1 | CE+)",
+    "    18. Application Control          (CIS L1 | CE2 | CE+)",
+    "    19. Event Log Configuration      (CIS L1 18.x)",
+    "    20. Credential Protection        (CIS L1 | CE+ | PRT-aware)",
+    "    21. Screen Lock / Session        (CIS L1 | CE2)",
+    "    22. Unnecessary Features         (CE2 | CE+)",
+    "    23. Network Security             (CIS L1 | CE1 | CE2 | IPv6-aware)",
+    "    24. Memory & Exploit Protect     (CIS L1)",
+    "    25. CE Secure Configuration      (CE2 | CE+)",
+    "    26. Cyber Essentials Plus        (CE+)",
+    "   26A. CE+ Account Separation       (CE+ | NCSC)",
+    "   26B. CE+ 2FA/MFA                  (CE+ | NCSC)"
+)
+foreach ($l in $coreLines) { Write-ReportLine $l }
 
-# Failed controls list
-if ($failCount -gt 0) {
-    Write-Host "`n  ALL FAILED CONTROLS:" -ForegroundColor Red
-    Add-Content -Path $ReportPath -Value "`n  ALL FAILED CONTROLS:"
-    $Results | Where-Object { $_.Status -eq "FAIL" } | ForEach-Object {
-        $line = "    [$($_.ID)] [$($_.Framework)] $($_.Description) - $($_.Detail)"
-        Write-Host $line -ForegroundColor Red
-        Add-Content -Path $ReportPath -Value $line
-    }
-}
+Write-ReportLine ""
+Write-ReportLine "  Entra ID / M365 / Cloud (EntraID | CE+):" "White"
+$entraLines = @(
+    "    27. Entra ID Device Identity     (EntraID | CE+)",
+    "    28. Intune / MDM Enrolment       (EntraID | CE+)",
+    "    29. Windows Hello for Bus.       (EntraID | CE+)",
+    "    30. Defender for Endpoint        (EntraID | CE+)",
+    "    31. Microsoft 365 / Office       (EntraID | CE+)",
+    "    32. CA & Device Compliance       (EntraID | CE+)"
+)
+foreach ($l in $entraLines) { Write-ReportLine $l }
 
-# Warnings list
-if ($warnCount -gt 0) {
-    Write-Host "`n  ALL WARNINGS (review manually):" -ForegroundColor Yellow
-    Add-Content -Path $ReportPath -Value "`n  ALL WARNINGS (review manually):"
-    $Results | Where-Object { $_.Status -eq "WARN" } | ForEach-Object {
-        $line = "    [$($_.ID)] [$($_.Framework)] $($_.Description) - $($_.Detail)"
-        Write-Host $line -ForegroundColor Yellow
-        Add-Content -Path $ReportPath -Value $line
-    }
-}
+Write-ReportLine ""
+Write-ReportLine "  CIS Level 2 Hardening:" "White"
+$l2Lines = @(
+    "    33. CIS L2 User Rights           (CIS L2)",
+    "    34. CIS L2 Sec Options           (CIS L2)",
+    "    35. CIS L2 Advanced Audit        (CIS L2 17.x)",
+    "    36. TLS/SSL & Cipher Hard.       (CIS L2 | CE+)",
+    "    37. Microsoft Edge Security      (CIS L2 | CE+)",
+    "    38. Peripheral & Device Ctrl     (CIS L2 | CE+)",
+    "    39. Windows Privacy Hard.        (CIS L2)",
+    "    40. Remote Assistance            (CIS L2)",
+    "    41. DNS Client Security          (CIS L2)",
+    "    42. Scheduled Tasks              (CIS L2)",
+    "    43. MSS Legacy Settings          (CIS L2)",
+    "    44. CIS L2 Network Protocol      (CIS L2)",
+    "    45. ASR Specific Rules           (CIS L1/L2)",
+    "    46. System Exploit Protect       (CIS L2)",
+    "    47. Kernel DMA Protection        (CIS L2 | CE+)",
+    "    48. LAPS Configuration           (CIS L1 | CE3)",
+    "    49. Network List Manager         (CIS L2)",
+    "    50. Delivery Optimisation        (CIS L2)",
+    "    51. NTP / Time Security          (CIS L2)",
+    "    52. Defender App Guard           (CIS L2)",
+    "    53. RPC & DCOM Security          (CIS L2)",
+    "    54. Group Policy Infra.          (CIS L2)",
+    "    55. Print Security               (CIS L1/L2)",
+    "    56. Windows Copilot / AI         (CIS L2)",
+    "    57. File & Reg Permissions       (CIS L2)",
+    "    58. Internet Explorer            (CIS L1)",
+    "    59. Windows Event Forwarding     (CIS L2)",
+    "    60. Additional Defender          (CIS L1/L2)"
+)
+foreach ($l in $l2Lines) { Write-ReportLine $l }
 
-Write-Host "`n  Report saved to: $ReportPath`n" -ForegroundColor Green
-Add-Content -Path $ReportPath -Value "`n  Report saved to: $ReportPath"
+Write-ReportLine ""
+Write-ReportLine "  CIS L1 Extended Coverage (v5.0.1):" "White"
+$extLines = @(
+    "    61. CIS L1 User Rights           (CIS L1 2.2)",
+    "    62. CIS L1 Security Options      (CIS L1 2.3/18.3)",
+    "    63. CIS L1 Admin Tmpl System     (CIS L1 18.1/18.8)",
+    "    64. CIS L1 Admin Tmpl WinCo      (CIS L1 18.5/18.9)",
+    "    65. CIS L1 System Services       (CIS L1 5.x)",
+    "    66. CIS L1 Admin Tmpl User       (CIS L1 19.x)",
+    "    67. CIS L1 Data/Telemetry        (CIS L1 18.9.17)",
+    "    68. CIS L1 Device Guard/VBS      (CIS L1 18.8.5)",
+    "    69. CIS L1 Logon/Cred UI         (CIS L1 18.8.28/18.9.15)",
+    "    70. CIS L1 Addit. Admin Tmpl     (CIS L1 18.x)",
+    "    71. CIS L1 Lockout/Rights/Sec    (CIS L1 1.2/2.2/2.3)",
+    "    72. CIS L1 FW Policy Logging     (CIS L1 9.x)",
+    "    73. CIS L1 Audit Policy Add'l    (CIS L1 17.x)",
+    "    74. CIS L1 Personalization       (CIS L1 18.1)",
+    "    75. CIS L1 MSS/Network/SMB       (CIS L1 18.5/18.6)",
+    "    76. CIS L1 Printer Security      (CIS L1 18.7)",
+    "    77. CIS L1 System Templates      (CIS L1 18.9)",
+    "    78. CIS L1 Windows Components    (CIS L1 18.10)",
+    "    79. CIS L1 WiFi/User Templates   (CIS L1 18.11/19.7)"
+)
+foreach ($l in $extLines) { Write-ReportLine $l }
+
+# ============================================================
+#  CSV EXPORT
+# ============================================================
+$Results | Select-Object ID, Framework, Status, Description, Detail |
+    Export-Csv -Path $CsvPath -NoTypeInformation -Encoding UTF8
+
+# ============================================================
+#  REPORT FOOTER
+# ============================================================
+Write-ReportLine ""
+Write-Divider "="
+Write-ReportLine "  END OF AUDIT REPORT"
+Write-ReportLine "  Generated : $(Get-Date -Format 'dd MMM yyyy HH:mm:ss') UTC"
+Write-ReportLine "  Duration  : $DurationStr"
+Write-Divider "="
+
+Write-Host ""
+Write-Host "  Text report saved to : $ReportPath" -ForegroundColor Green
+Write-Host "  CSV export saved to  : $CsvPath" -ForegroundColor Green
+Write-Host ""
+Add-Content -Path $ReportPath -Value ""
+Add-Content -Path $ReportPath -Value "  Text report : $ReportPath"
+Add-Content -Path $ReportPath -Value "  CSV export  : $CsvPath"
