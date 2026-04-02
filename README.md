@@ -42,7 +42,20 @@ Run the script in an elevated PowerShell session:
 ## Output
 
 - **Console** — colour-coded results: **Green** (PASS), **Red** (FAIL), **Yellow** (WARN), **Cyan** (INFO / Cloud-Managed)
-- **Report file** — `OTY_Heavy_Industries_Audit_<timestamp>.txt` saved to the Desktop, containing all results plus a compliance summary with pass/fail/warn counts and an overall score
+- **Text report** — `OTY_Heavy_Industries_Audit_<timestamp>.txt` saved to the user profile directory, containing all results plus a compliance summary with pass/fail/warn counts, per-framework scores with visual progress bars, and an overall risk rating
+- **CSV export** — `OTY_Heavy_Industries_Audit_<timestamp>.csv` saved alongside the text report for import into spreadsheets, SIEM tools, or other analysis platforms
+
+### Report Structure
+
+The report is organised into clear, logical sections:
+
+1. **Executive Summary** — overall risk rating (Critical / High / Moderate / Low), compliance score with progress bar, and key metrics at a glance
+2. **Framework Score Dashboard** — side-by-side comparison of all framework scores (CIS L1, CIS L2, CE/CE+, Entra ID, NCSC) with ASCII progress bars and pass/fail/warn breakdowns
+3. **Device Context** — hostname, join type, tenant, MDM enrolment, and PRT status
+4. **Priority Remediation** — all failed controls grouped by framework, numbered and sorted for actionable prioritisation
+5. **Warnings Summary** — all warnings grouped by framework for manual review
+6. **Per-Framework Detailed Reports** — full PASS/FAIL/WARN listing for each framework (CIS L1, CIS L2, CE/CE+, Entra ID/M365, NCSC)
+7. **Sections Audited** — all 79 sections grouped into logical categories (Core Security, Entra/Cloud, CIS L2, CIS L1 Extended)
 
 ## Audit Categories
 
@@ -129,6 +142,19 @@ Run the script in an elevated PowerShell session:
 | 79 | CIS L1 — WiFi & User Templates | CIS L1 18.11/19.7 |
 
 ## Changelog
+
+### v5.1.0 — Enhanced Reporting & CSV Export
+
+- **Executive Summary** with risk rating (Critical/High/Moderate/Low) and visual compliance score bar
+- **Framework Score Dashboard** with ASCII progress bars and per-framework PASS/FAIL/WARN breakdowns for all five frameworks (CIS L1, CIS L2, CE/CE+, Entra ID/M365, NCSC)
+- **Priority Remediation** section groups all failures by framework with numbered items for actionable triage
+- **Warnings Summary** groups all warnings by framework for efficient manual review
+- **Entra ID / M365** now included in per-framework detailed reports (previously missing)
+- **CSV export** generated alongside the text report for integration with spreadsheets, SIEM, or analysis tools
+- **Audit duration** tracked and displayed in the report footer
+- **Sections Audited** listing reorganised into logical categories (Core Security, Entra/Cloud, CIS L2, CIS L1 Extended)
+- Passed items in per-framework reports now show check name only (detail omitted for readability)
+- Report helper functions added (`Write-ReportLine`, `Write-Divider`, `Get-ProgressBar`, `Get-RiskRating`) for consistent formatting
 
 ### v5.0.0 — CIS v5.0.1 L1 Full Coverage
 
