@@ -32,7 +32,7 @@
 # ============================================================
 $ScriptVersion = "4.2.2"
 $Timestamp     = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
-$ReportPath    = "$env:USERPROFILE\Desktop\OTY_Heavy_Industries_Audit_$Timestamp.txt"
+$ReportPath    = "$env:USERPROFILE\OTY_Heavy_Industries_Audit_$Timestamp.txt"
 $SecCfg        = "$env:TEMP\oty_secedit_$Timestamp.cfg"
 $Results       = [System.Collections.Generic.List[PSCustomObject]]::new()
 
