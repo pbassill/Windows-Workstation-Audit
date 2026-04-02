@@ -4,7 +4,7 @@ A PowerShell script to audit Windows 10/11 builds against CIS Level 1 & 2, Cyber
 
 ## Overview
 
-This tool performs **508 individual security checks** across **66 audit categories**, covering:
+This tool performs **721 individual security checks** across **79 audit categories**, covering:
 
 - **CIS Microsoft Windows Benchmark Level 1** controls
 - **CIS Microsoft Windows Benchmark Level 2** controls
@@ -114,10 +114,30 @@ Run the script in an elevated PowerShell session:
 | 64 | CIS L1 — Administrative Templates (Windows Components) | CIS L1 18.5/18.9 |
 | 65 | CIS L1 — System Services (Missing) | CIS L1 5.x |
 | 66 | CIS L1 — Administrative Templates (User) | CIS L1 19.x |
+| 67 | CIS L1 — Data Collection / Telemetry | CIS L1 18.9.17 |
+| 68 | CIS L1 — Device Guard / VBS | CIS L1 18.8.5 |
+| 69 | CIS L1 — Logon & Credential UI | CIS L1 18.8.28/18.9.15 |
+| 70 | CIS L1 — Additional Admin Templates | CIS L1 18.x |
+| 71 | CIS L1 — Account Lockout, User Rights & Security Options | CIS L1 1.2/2.2/2.3 |
+| 72 | CIS L1 — Windows Firewall Policy Logging | CIS L1 9.x |
+| 73 | CIS L1 — Audit Policy Additional | CIS L1 17.x |
+| 74 | CIS L1 — Personalization & Speech | CIS L1 18.1 |
+| 75 | CIS L1 — MSS / Network / SMB Hardening | CIS L1 18.5/18.6 |
+| 76 | CIS L1 — Printer Security | CIS L1 18.7 |
+| 77 | CIS L1 — System Admin Templates | CIS L1 18.9 |
+| 78 | CIS L1 — Windows Components | CIS L1 18.10 |
+| 79 | CIS L1 — WiFi & User Templates | CIS L1 18.11/19.7 |
 
 ## Changelog
 
-### Latest Changes
+### v5.0.0 — CIS v5.0.1 L1 Full Coverage
+
+- **134 new CIS L1 checks** across 9 new sections (71–79), mapped directly from the CIS Microsoft Windows 11 Enterprise v5.0.1 Level 1 benchmark audit file
+- Total checks increased from 587 to **721** across **79 audit categories**
+- New sections cover: Account Lockout (1.2.3), additional User Rights (2.2.x), Security Options (2.3.x), Windows Firewall Policy logging (9.x), Audit Policy subcategories (17.x), Personalization (18.1.x), MSS/Network/SMB hardening (18.5–18.6), Printer security (18.7.x), System templates (18.9.x), Windows Components (18.10.x), WiFi (18.11.x), and User templates (19.7.x)
+- All checks mapped to specific CIS benchmark control IDs (e.g. `CIS 18.10.42.4.1`, `CIS 2.3.17.1`)
+
+### Previous Changes
 
 - **Section 15 (BitLocker)**: BitLocker Key Backed Up to Entra/AD check now always returns PASS on Entra-joined devices with BitLocker enabled, since key escrow is managed by Entra ID.
 - **Section 22 (Unnecessary Windows Features)**: Features that return an empty or null state (i.e. not present / removed) are now correctly treated as PASS instead of WARN.

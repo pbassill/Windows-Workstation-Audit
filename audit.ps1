@@ -30,7 +30,7 @@
 # ============================================================
 #  INITIALISATION
 # ============================================================
-$ScriptVersion = "4.2.2"
+$ScriptVersion = "5.0.0"
 $Timestamp     = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
 $ReportPath    = "$env:USERPROFILE\OTY_Heavy_Industries_Audit_$Timestamp.txt"
 $SecCfg        = "$env:TEMP\oty_secedit_$Timestamp.cfg"
@@ -3872,6 +3872,732 @@ $val = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WinRM\Service\Win
 $s   = if ($val -eq 0) { "PASS" } else { "WARN" }
 Add-Result "70.16" "Remote Shell Access Disabled" $s "CIS 18.9.105.1: AllowRemoteShellAccess: $(if ($null -eq $val) {'Not set'} else {$val}) (0=Disabled)" "CIS"
 
+
+# ============================================================
+#  SECTION 71: CIS L1 - ACCOUNT LOCKOUT & USER RIGHTS ADDITIONAL  [CIS]
+# ============================================================
+Write-SectionHeader "71. CIS L1 - ACCOUNT LOCKOUT & USER RIGHTS ADDITIONAL" "CIS"
+
+# 71.1 CIS 1.2.3: Ensure 'Allow Administrator account lockout' is set to 'Enab
+$val = Get-SecEditValue "AllowAdministratorLockout"
+$s   = if ($val -eq "1") { "PASS" } else { "WARN" }
+Add-Result "71.1" "Admin Account Lockout Enabled" $s "CIS 1.2.3: AllowAdministratorLockout: $(if ($null -eq $val) {'Not set'} else {$val}) (1=Enabled)" "CIS"
+
+# 71.2 CIS 2.2.8: Ensure 'Change the system time' is set to 'Administrators, L
+$val = Get-UserRight "SeSystemTimePrivilege"
+$s   = if ($val -and $val -notmatch "Everyone" -and $val -notmatch "Users") { "PASS" } else { "WARN" }
+Add-Result "71.2" "Change System Time: Admins, LOCAL SERVICE" $s "CIS 2.2.8: SeSystemTimePrivilege: $(if ($val) {$val} else {'Not assigned'})" "CIS"
+
+# 71.3 CIS 2.2.30: Ensure 'Modify an object label' is set to 'No One
+$val = Get-UserRight "SeReLabelPrivilege"
+$s   = if ($null -eq $val -or $val -eq "") { "PASS" } else { "FAIL" }
+Add-Result "71.3" "Modify an object label : No One" $s "CIS 2.2.30: SeReLabelPrivilege: $(if ($val) {$val} else {'Not assigned'})" "CIS"
+
+# 71.4 CIS 2.2.34: Ensure 'Profile system performance' is set to 'Administrator
+$val = Get-UserRight "SeSystemProfilePrivilege"
+$s   = if ($val -and $val -ne "") { "PASS" } else { "WARN" }
+Add-Result "71.4" "Profile System Performance" $s "CIS 2.2.34: SeSystemProfilePrivilege: $(if ($val) {$val} else {'Not assigned'})" "CIS"
+
+# 71.5 CIS 2.3.1.1: Ensure 'Accounts: Guest account status' is set to 'Disabled
+$gAcct = $null; try { $gAcct = Get-LocalUser -Name "Guest" -ErrorAction Stop } catch {}
+if ($null -eq $gAcct) { $gAcct = Get-LocalUser | Where-Object { $_.SID -like "S-1-5-*-501" } -ErrorAction SilentlyContinue }
+$s = if ($null -eq $gAcct -or -not $gAcct.Enabled) { "PASS" } else { "FAIL" }
+Add-Result "71.5" "Guest Account Disabled" $s "CIS 2.3.1.1: $(if ($gAcct) {"Enabled=$($gAcct.Enabled)"} else {'Not found (compliant)'})" "CIS"
+
+# 71.6 CIS 2.3.1.3: Configure 'Accounts: Rename administrator account
+$admAcct = Get-LocalUser | Where-Object { $_.SID -like "S-1-5-*-500" } -ErrorAction SilentlyContinue
+$s = if ($admAcct -and $admAcct.Name -ne "Administrator") { "PASS" } else { "WARN" }
+Add-Result "71.6" "Admin Account Renamed" $s "CIS 2.3.1.3: Name: $(if ($admAcct) {$admAcct.Name} else {'Not found'})" "CIS"
+
+# 71.7 CIS 2.3.1.4: Configure 'Accounts: Rename guest account'
+$gAcct2 = $null; try { $gAcct2 = Get-LocalUser -Name "Guest" -ErrorAction Stop } catch {}
+if ($null -eq $gAcct2) { $gAcct2 = Get-LocalUser | Where-Object { $_.SID -like "S-1-5-*-501" } -ErrorAction SilentlyContinue }
+$s = if ($null -eq $gAcct2) { "PASS" } elseif ($gAcct2.Name -ne "Guest") { "PASS" } else { "WARN" }
+Add-Result "71.7" "Guest Account Renamed" $s "CIS 2.3.1.4: Name: $(if ($gAcct2) {$gAcct2.Name} else {'Not found'})" "CIS"
+
+# 71.8 CIS 2.3.6.4: Ensure 'Domain member: Disable machine account password chan
+$val = Get-RegValue "HKLM:\System\CurrentControlSet\Services\Netlogon\Parameters" "DisablePasswordChange"
+$s   = if ($val -eq 0) { "PASS" } elseif ($null -eq $val) { "WARN" } else { "FAIL" }
+Add-Result "71.8" "Domain member: Disable machine account password ch" $s "CIS 2.3.6.4: DisablePasswordChange: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 71.9 CIS 2.3.9.4: Ensure 'Microsoft network server: Server SPN target name val
+$val = Get-RegValue "HKLM:\System\CurrentControlSet\Services\LanManServer\Parameters" "SMBServerNameHardeningLevel"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "71.9" "Microsoft network server: Server SPN target name v" $s "CIS 2.3.9.4: SMBServerNameHardeningLevel: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 71.10 CIS 2.3.10.1: Ensure 'Network access: Allow anonymous SID/Name translation
+$val = Get-SecEditValue "LSAAnonymousNameLookup"
+$s   = if ($val -eq "0" -or $val -eq 0) { "PASS" } else { "FAIL" }
+Add-Result "71.10" "Anonymous SID/Name Translation Off" $s "CIS 2.3.10.1: LSAAnonymousNameLookup: $(if ($null -eq $val) {'Not set'} else {$val}) (0=Disabled)" "CIS"
+
+# 71.11 CIS 2.3.11.5: Ensure 'Network security: Force logoff when logon hours expire'
+$val = Get-SecEditValue "ForceLogoffWhenHourExpire"
+$s   = if ($val -eq "1" -or $val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "71.11" "Force Logoff When Hours Expire" $s "CIS 2.3.11.5: ForceLogoffWhenHourExpire: $(if ($null -eq $val) {'Not set'} else {$val}) (1=Enabled)" "CIS"
+
+# 71.12 CIS 2.3.11.7: Ensure 'Network security: LDAP client encryption requirement
+$val = Get-RegValue "HKLM:\System\CurrentControlSet\Services\LDAP" "LDAPClientConfidentiality"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "71.12" "Network security: LDAP client encryption requireme" $s "CIS 2.3.11.7: LDAPClientConfidentiality: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 71.13 CIS 2.3.11.11: Ensure 'Network security: Restrict NTLM: Audit Incoming NTLM
+$val = Get-RegValue "HKLM:\System\CurrentControlSet\Control\Lsa\MSV1_0" "AuditReceivingNTLMTraffic"
+$s   = if ($val -eq 2) { "PASS" } else { "WARN" }
+Add-Result "71.13" "Network security: Restrict NTLM: Audit Incoming NT" $s "CIS 2.3.11.11: AuditReceivingNTLMTraffic: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 71.14 CIS 2.3.15.1: Ensure 'System objects: Require case insensitivity for non-W
+$val = Get-RegValue "HKLM:\System\CurrentControlSet\Control\Session Manager\Kernel" "ObCaseInsensitive"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "71.14" "System objects: Require case insensitivity for non" $s "CIS 2.3.15.1: ObCaseInsensitive: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 71.15 CIS 2.3.17.1: Ensure 'User Account Control: Admin Approval Mode for the Bu
+$val = Get-RegValue "HKLM:\Software\Microsoft\Windows\CurrentVersion\Policies\System" "FilterAdministratorToken"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "71.15" "User Account Control: Admin Approval Mode for the " $s "CIS 2.3.17.1: FilterAdministratorToken: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 71.16 CIS 2.3.17.4: Ensure 'User Account Control: Detect application installatio
+$val = Get-RegValue "HKLM:\Software\Microsoft\Windows\CurrentVersion\Policies\System" "EnableInstallerDetection"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "71.16" "User Account Control: Detect application installat" $s "CIS 2.3.17.4: EnableInstallerDetection: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+
+# ============================================================
+#  SECTION 72: CIS L1 - WINDOWS FIREWALL POLICY (CIS 9.x)  [CIS]
+# ============================================================
+Write-SectionHeader "72. CIS L1 - WINDOWS FIREWALL POLICY (CIS 9.x)" "CIS"
+
+# 72.1 CIS 9.1.3: Ensure 'Windows Firewall: Domain: Settings: Display a notifi
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\WindowsFirewall\DomainProfile" "DisableNotifications"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "72.1" "Windows Firewall: Domain: Settings: Display a noti" $s "CIS 9.1.3: DisableNotifications: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 72.2 CIS 9.1.4: Ensure 'Windows Firewall: Domain: Logging: Name' is configur
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\WindowsFirewall\DomainProfile\Logging" "LogFilePath"
+$s   = if ($null -ne $val -and $val -ne "") { "PASS" } else { "WARN" }
+Add-Result "72.2" "Windows Firewall: Domain: Logging: Name is configu" $s "CIS 9.1.4: LogFilePath: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 72.3 CIS 9.1.5: Ensure 'Windows Firewall: Domain: Logging: Size limit (KB)' 
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\WindowsFirewall\DomainProfile\Logging" "LogFileSize"
+$s   = if ($null -ne $val -and [int]$val -ge 16384) { "PASS" } else { "WARN" }
+Add-Result "72.3" "Windows Firewall: Domain: Logging: Size limit (KB)" $s "CIS 9.1.5: LogFileSize: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 72.4 CIS 9.1.6: Ensure 'Windows Firewall: Domain: Logging: Log dropped packe
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\WindowsFirewall\DomainProfile\Logging" "LogDroppedPackets"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "72.4" "Windows Firewall: Domain: Logging: Log dropped pac" $s "CIS 9.1.6: LogDroppedPackets: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 72.5 CIS 9.1.7: Ensure 'Windows Firewall: Domain: Logging: Log successful co
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\WindowsFirewall\DomainProfile\Logging" "LogSuccessfulConnections"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "72.5" "Windows Firewall: Domain: Logging: Log successful " $s "CIS 9.1.7: LogSuccessfulConnections: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 72.6 CIS 9.2.3: Ensure 'Windows Firewall: Private: Settings: Display a notif
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\WindowsFirewall\PrivateProfile" "DisableNotifications"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "72.6" "Windows Firewall: Private: Settings: Display a not" $s "CIS 9.2.3: DisableNotifications: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 72.7 CIS 9.2.4: Ensure 'Windows Firewall: Private: Logging: Name' is configu
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\WindowsFirewall\PrivateProfile\Logging" "LogFilePath"
+$s   = if ($null -ne $val -and $val -ne "") { "PASS" } else { "WARN" }
+Add-Result "72.7" "Windows Firewall: Private: Logging: Name is config" $s "CIS 9.2.4: LogFilePath: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 72.8 CIS 9.2.5: Ensure 'Windows Firewall: Private: Logging: Size limit (KB)'
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\WindowsFirewall\PrivateProfile\Logging" "LogFileSize"
+$s   = if ($null -ne $val -and [int]$val -ge 16384) { "PASS" } else { "WARN" }
+Add-Result "72.8" "Windows Firewall: Private: Logging: Size limit (KB" $s "CIS 9.2.5: LogFileSize: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 72.9 CIS 9.2.6: Ensure 'Windows Firewall: Private: Logging: Log dropped pack
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\WindowsFirewall\PrivateProfile\Logging" "LogDroppedPackets"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "72.9" "Windows Firewall: Private: Logging: Log dropped pa" $s "CIS 9.2.6: LogDroppedPackets: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 72.10 CIS 9.2.7: Ensure 'Windows Firewall: Private: Logging: Log successful c
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\WindowsFirewall\PrivateProfile\Logging" "LogSuccessfulConnections"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "72.10" "Windows Firewall: Private: Logging: Log successful" $s "CIS 9.2.7: LogSuccessfulConnections: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 72.11 CIS 9.3.3: Ensure 'Windows Firewall: Public: Settings: Display a notifi
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\WindowsFirewall\PublicProfile" "DisableNotifications"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "72.11" "Windows Firewall: Public: Settings: Display a noti" $s "CIS 9.3.3: DisableNotifications: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 72.12 CIS 9.3.4: Ensure 'Windows Firewall: Public: Settings: Apply local fire
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\WindowsFirewall\PublicProfile" "AllowLocalPolicyMerge"
+$s   = if ($val -eq 0) { "PASS" } elseif ($null -eq $val) { "WARN" } else { "FAIL" }
+Add-Result "72.12" "Windows Firewall: Public: Settings: Apply local fi" $s "CIS 9.3.4: AllowLocalPolicyMerge: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 72.13 CIS 9.3.5: Ensure 'Windows Firewall: Public: Settings: Apply local conn
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\WindowsFirewall\PublicProfile" "AllowLocalIPsecPolicyMerge"
+$s   = if ($val -eq 0) { "PASS" } elseif ($null -eq $val) { "WARN" } else { "FAIL" }
+Add-Result "72.13" "Windows Firewall: Public: Settings: Apply local co" $s "CIS 9.3.5: AllowLocalIPsecPolicyMerge: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 72.14 CIS 9.3.6: Ensure 'Windows Firewall: Public: Logging: Name' is configur
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\WindowsFirewall\PublicProfile\Logging" "LogFilePath"
+$s   = if ($null -ne $val -and $val -ne "") { "PASS" } else { "WARN" }
+Add-Result "72.14" "Windows Firewall: Public: Logging: Name is configu" $s "CIS 9.3.6: LogFilePath: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 72.15 CIS 9.3.7: Ensure 'Windows Firewall: Public: Logging: Size limit (KB)' 
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\WindowsFirewall\PublicProfile\Logging" "LogFileSize"
+$s   = if ($null -ne $val -and [int]$val -ge 16384) { "PASS" } else { "WARN" }
+Add-Result "72.15" "Windows Firewall: Public: Logging: Size limit (KB)" $s "CIS 9.3.7: LogFileSize: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 72.16 CIS 9.3.8: Ensure 'Windows Firewall: Public: Logging: Log dropped packe
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\WindowsFirewall\PublicProfile\Logging" "LogDroppedPackets"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "72.16" "Windows Firewall: Public: Logging: Log dropped pac" $s "CIS 9.3.8: LogDroppedPackets: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 72.17 CIS 9.3.9: Ensure 'Windows Firewall: Public: Logging: Log successful co
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\WindowsFirewall\PublicProfile\Logging" "LogSuccessfulConnections"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "72.17" "Windows Firewall: Public: Logging: Log successful " $s "CIS 9.3.9: LogSuccessfulConnections: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+
+# ============================================================
+#  SECTION 73: CIS L1 - AUDIT POLICY ADDITIONAL (CIS 17.x)  [CIS]
+# ============================================================
+Write-SectionHeader "73. CIS L1 - AUDIT POLICY ADDITIONAL (CIS 17.x)" "CIS"
+
+# 73.1 CIS 17.5.2: Ensure 'Audit Group Membership' is set to include 'Success
+$aud = (auditpol /get /subcategory:"Group Membership" 2>$null) -join " "
+$s   = if ($aud -match "Success") { "PASS" } else { "WARN" }
+Add-Result "73.1" "Audit Group Membership : include Success" $s "CIS 17.5.2: Group Membership: $aud" "CIS"
+
+# 73.2 CIS 17.7.3: Ensure 'Audit Authorization Policy Change' is set to include
+$aud = (auditpol /get /subcategory:"Authorization Policy Change" 2>$null) -join " "
+$s   = if ($aud -match "Success") { "PASS" } else { "WARN" }
+Add-Result "73.2" "Audit Authorization Policy Change : include Succes" $s "CIS 17.7.3: Authorization Policy Change: $aud" "CIS"
+
+# 73.3 CIS 17.9.1: Ensure 'Audit IPsec Driver' is set to 'Success and Failure
+$aud = (auditpol /get /subcategory:"IPsec Driver" 2>$null) -join " "
+$s   = if ($aud -match "Success and Failure") { "PASS" } else { "WARN" }
+Add-Result "73.3" "Audit IPsec Driver : Success and Failure" $s "CIS 17.9.1: IPsec Driver: $aud" "CIS"
+
+# 73.4 CIS 17.9.2: Ensure 'Audit Other System Events' is set to 'Success and Fa
+$aud = (auditpol /get /subcategory:"Other System Events" 2>$null) -join " "
+$s   = if ($aud -match "Success and Failure") { "PASS" } else { "WARN" }
+Add-Result "73.4" "Audit Other System Events : Success and Failure" $s "CIS 17.9.2: Other System Events: $aud" "CIS"
+
+
+# ============================================================
+#  SECTION 74: CIS L1 - PERSONALIZATION & SPEECH (CIS 18.1)  [CIS]
+# ============================================================
+Write-SectionHeader "74. CIS L1 - PERSONALIZATION & SPEECH (CIS 18.1)" "CIS"
+
+# 74.1 CIS 18.1.1.1: Ensure 'Prevent enabling lock screen camera' is set to 'Enab
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows\Personalization" "NoLockScreenCamera"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "74.1" "Prevent enabling lock screen camera : On" $s "CIS 18.1.1.1: NoLockScreenCamera: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 74.2 CIS 18.1.1.2: Ensure 'Prevent enabling lock screen slide show' is set to '
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows\Personalization" "NoLockScreenSlideshow"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "74.2" "Prevent enabling lock screen slide show : On" $s "CIS 18.1.1.2: NoLockScreenSlideshow: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 74.3 CIS 18.1.2.2: Ensure 'Allow users to enable online speech recognition serv
+$val = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\InputPersonalization" "AllowInputPersonalization"
+$s   = if ($val -eq 0) { "PASS" } elseif ($null -eq $val) { "WARN" } else { "FAIL" }
+Add-Result "74.3" "Allow users to enable online speech recognition se" $s "CIS 18.1.2.2: AllowInputPersonalization: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+
+# ============================================================
+#  SECTION 75: CIS L1 - MSS & NETWORK HARDENING (CIS 18.5-18.6)  [CIS]
+# ============================================================
+Write-SectionHeader "75. CIS L1 - MSS & NETWORK HARDENING (CIS 18.5-18.6)" "CIS"
+
+# 75.1 CIS 18.5.7: Ensure 'MSS: (NoNameReleaseOnDemand) Allow the computer to i
+$val = Get-RegValue "HKLM:\System\CurrentControlSet\Services\NetBT\Parameters" "NoNameReleaseOnDemand"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "75.1" "MSS: (NoNameReleaseOnDemand) Allow the computer to" $s "CIS 18.5.7: NoNameReleaseOnDemand: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 75.2 CIS 18.6.7.1: Ensure 'Audit client does not support encryption' is set to 
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows\LanmanServer" "AuditClientDoesNotSupportEncryption"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "75.2" "Audit client does not support encryption : On" $s "CIS 18.6.7.1: AuditClientDoesNotSupportEncryption: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 75.3 CIS 18.6.7.2: Ensure 'Audit client does not support signing' is set to 'En
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows\LanmanServer" "AuditClientDoesNotSupportSigning"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "75.3" "Audit client does not support signing : On" $s "CIS 18.6.7.2: AuditClientDoesNotSupportSigning: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 75.4 CIS 18.6.7.3: Ensure 'Audit insecure guest logon' is set to 'Enabled
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows\LanmanServer" "AuditInsecureGuestLogon"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "75.4" "Audit insecure guest logon : On" $s "CIS 18.6.7.3: AuditInsecureGuestLogon: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 75.5 CIS 18.6.7.4: Ensure 'Enable authentication rate limiter' is set to 'Enabl
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows\LanmanServer" "EnableAuthRateLimiter"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "75.5" "Enable authentication rate limiter : On" $s "CIS 18.6.7.4: EnableAuthRateLimiter: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 75.6 CIS 18.6.7.5: Ensure 'Enable remote mailslots' is set to 'Disabled
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows\Bowser" "EnableMailslots"
+$s   = if ($val -eq 0) { "PASS" } elseif ($null -eq $val) { "WARN" } else { "FAIL" }
+Add-Result "75.6" "Enable remote mailslots : Off" $s "CIS 18.6.7.5: EnableMailslots: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 75.7 CIS 18.6.7.6: Ensure 'Mandate the minimum version of SMB' is set to 'Enabl
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows\LanmanServer" "MinSmb2Dialect"
+$s   = if ($val -eq 785) { "PASS" } else { "WARN" }
+Add-Result "75.7" "Mandate the minimum version of SMB : On: 3.1.1" $s "CIS 18.6.7.6: MinSmb2Dialect: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 75.8 CIS 18.6.7.7: Ensure 'Set authentication rate limiter delay (milliseconds)
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows\LanmanServer" "InvalidAuthenticationDelayTimeInMs"
+$s   = if ($null -ne $val -and [int]$val -ge 2000) { "PASS" } else { "WARN" }
+Add-Result "75.8" "Set authentication rate limiter delay (millisecond" $s "CIS 18.6.7.7: InvalidAuthenticationDelayTimeInMs: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 75.9 CIS 18.6.8.1: Ensure 'Audit insecure guest logon' is set to 'Enabled
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows\LanmanWorkstation" "AuditInsecureGuestLogon"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "75.9" "Audit insecure guest logon : On" $s "CIS 18.6.8.1: AuditInsecureGuestLogon: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 75.10 CIS 18.6.8.2: Ensure 'Audit server does not support encryption' is set to 
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows\LanmanWorkstation" "AuditServerDoesNotSupportEncryption"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "75.10" "Audit server does not support encryption : On" $s "CIS 18.6.8.2: AuditServerDoesNotSupportEncryption: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 75.11 CIS 18.6.8.3: Ensure 'Audit server does not support signing' is set to 'En
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows\LanmanWorkstation" "AuditServerDoesNotSupportSigning"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "75.11" "Audit server does not support signing : On" $s "CIS 18.6.8.3: AuditServerDoesNotSupportSigning: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 75.12 CIS 18.6.8.4: Ensure 'Enable insecure guest logons' is set to 'Disabled
+$val = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\LanmanWorkstation" "AllowInsecureGuestAuth"
+$s   = if ($val -eq 0) { "PASS" } elseif ($null -eq $val) { "WARN" } else { "FAIL" }
+Add-Result "75.12" "Enable insecure guest logons : Off" $s "CIS 18.6.8.4: AllowInsecureGuestAuth: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 75.13 CIS 18.6.8.5: Ensure 'Enable remote mailslots' is set to 'Disabled
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows\NetworkProvider" "EnableMailslots"
+$s   = if ($val -eq 0) { "PASS" } elseif ($null -eq $val) { "WARN" } else { "FAIL" }
+Add-Result "75.13" "Enable remote mailslots : Off" $s "CIS 18.6.8.5: EnableMailslots: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 75.14 CIS 18.6.8.6: Ensure 'Mandate the minimum version of SMB' is set to 'Enabl
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows\LanmanWorkstation" "MinSmb2Dialect"
+$s   = if ($val -eq 785) { "PASS" } else { "WARN" }
+Add-Result "75.14" "Mandate the minimum version of SMB : On: 3.1.1" $s "CIS 18.6.8.6: MinSmb2Dialect: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 75.15 CIS 18.6.8.7: Ensure 'Require Encryption' is set to 'Enabled
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows\LanmanWorkstation" "RequireEncryption"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "75.15" "Require Encryption : On" $s "CIS 18.6.8.7: RequireEncryption: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 75.16 CIS 18.6.11.2: Ensure 'Prohibit installation and configuration of Network B
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows\Network Connections" "NC_AllowNetBridge_NLA"
+$s   = if ($val -eq 0) { "PASS" } elseif ($null -eq $val) { "WARN" } else { "FAIL" }
+Add-Result "75.16" "Prohibit installation and configuration of Network" $s "CIS 18.6.11.2: NC_AllowNetBridge_NLA: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 75.17 CIS 18.6.11.3: Ensure 'Prohibit use of Internet Connection Sharing on your 
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows\Network Connections" "NC_ShowSharedAccessUI"
+$s   = if ($val -eq 0) { "PASS" } elseif ($null -eq $val) { "WARN" } else { "FAIL" }
+Add-Result "75.17" "Prohibit use of Internet Connection Sharing on you" $s "CIS 18.6.11.3: NC_ShowSharedAccessUI: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 75.18 CIS 18.6.21.1: Ensure 'Minimize the number of simultaneous connections to t
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows\WcmSvc\GroupPolicy" "fMinimizeConnections"
+$s   = if ($val -eq 3) { "PASS" } else { "WARN" }
+Add-Result "75.18" "Minimize the number of simultaneous connections to" $s "CIS 18.6.21.1: fMinimizeConnections: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 75.19 CIS 18.6.23.2.1: Ensure 'Allow Windows to automatically connect to suggested 
+$val = Get-RegValue "HKLM:\Software\Microsoft\WcmSvc\wifinetworkmanager\config" "AutoConnectAllowedOEM"
+$s   = if ($val -eq 0) { "PASS" } elseif ($null -eq $val) { "WARN" } else { "FAIL" }
+Add-Result "75.19" "Allow Windows to automatically connect to suggeste" $s "CIS 18.6.23.2.1: AutoConnectAllowedOEM: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+
+# ============================================================
+#  SECTION 76: CIS L1 - PRINTER SECURITY (CIS 18.7)  [CIS]
+# ============================================================
+Write-SectionHeader "76. CIS L1 - PRINTER SECURITY (CIS 18.7)" "CIS"
+
+# 76.1 CIS 18.7.1: Ensure 'Allow Print Spooler to accept client connections' is
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows NT\Printers" "RegisterSpoolerRemoteRpcEndPoint"
+$s   = if ($val -eq 2) { "PASS" } else { "WARN" }
+Add-Result "76.1" "Allow Print Spooler to accept client connections :" $s "CIS 18.7.1: RegisterSpoolerRemoteRpcEndPoint: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 76.2 CIS 18.7.2: Ensure 'Configure Redirection Guard' is set to 'Enabled: Red
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows NT\Printers" "RedirectionGuardPolicy"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "76.2" "Configure Redirection Guard : On: Redirection Guar" $s "CIS 18.7.2: RedirectionGuardPolicy: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 76.3 CIS 18.7.3: Ensure 'Configure RPC connection settings: Protocol to use f
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows NT\Printers\RPC" "RpcUseNamedPipeProtocol"
+$s   = if ($val -eq 0) { "PASS" } elseif ($null -eq $val) { "WARN" } else { "FAIL" }
+Add-Result "76.3" "Configure RPC connection settings: Protocol to use" $s "CIS 18.7.3: RpcUseNamedPipeProtocol: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 76.4 CIS 18.7.4: Ensure 'Configure RPC connection settings: Use authenticatio
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows NT\Printers\RPC" "RpcAuthentication"
+$s   = if ($val -eq 0) { "PASS" } elseif ($null -eq $val) { "WARN" } else { "FAIL" }
+Add-Result "76.4" "Configure RPC connection settings: Use authenticat" $s "CIS 18.7.4: RpcAuthentication: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 76.5 CIS 18.7.5: Ensure 'Configure RPC listener settings: Protocols to allow 
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows NT\Printers\RPC" "RpcProtocols"
+$s   = if ($val -eq 5) { "PASS" } else { "WARN" }
+Add-Result "76.5" "Configure RPC listener settings: Protocols to allo" $s "CIS 18.7.5: RpcProtocols: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 76.6 CIS 18.7.6: Ensure 'Configure RPC listener settings: Authentication prot
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows NT\Printers\RPC" "ForceKerberosForRpc"
+$s   = if ($val -eq 0) { "PASS" } elseif ($null -eq $val) { "WARN" } else { "FAIL" }
+Add-Result "76.6" "Configure RPC listener settings: Authentication pr" $s "CIS 18.7.6: ForceKerberosForRpc: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 76.7 CIS 18.7.7: Ensure 'Configure RPC over TCP port' is set to 'Enabled: 0
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows NT\Printers\RPC" "RpcTcpPort"
+$s   = if ($val -eq 0) { "PASS" } elseif ($null -eq $val) { "WARN" } else { "FAIL" }
+Add-Result "76.7" "Configure RPC over TCP port : On: 0" $s "CIS 18.7.7: RpcTcpPort: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 76.8 CIS 18.7.11: Ensure 'Manage processing of Queue-specific files' is set to
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows NT\Printers" "CopyFilesPolicy"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "76.8" "Manage processing of Queue-specific files : On: Li" $s "CIS 18.7.11: CopyFilesPolicy: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+
+# ============================================================
+#  SECTION 77: CIS L1 - SYSTEM ADMIN TEMPLATES (CIS 18.9)  [CIS]
+# ============================================================
+Write-SectionHeader "77. CIS L1 - SYSTEM ADMIN TEMPLATES (CIS 18.9)" "CIS"
+
+# 77.1 CIS 18.9.4.1: Ensure 'Encryption Oracle Remediation' is set to 'Enabled: F
+$val = Get-RegValue "HKLM:\Software\Microsoft\Windows\CurrentVersion\Policies\System\CredSSP\Parameters" "AllowEncryptionOracle"
+$s   = if ($val -eq 0) { "PASS" } elseif ($null -eq $val) { "WARN" } else { "FAIL" }
+Add-Result "77.1" "Encryption Oracle Remediation : On: Force Updated " $s "CIS 18.9.4.1: AllowEncryptionOracle: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 77.2 CIS 18.9.5.4: Ensure 'Turn On Virtualization Based Security: Require UEFI 
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows\DeviceGuard" "HVCIMATRequired"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "77.2" "Turn On Virtualization Based Security: Require UEF" $s "CIS 18.9.5.4: HVCIMATRequired: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 77.3 CIS 18.9.5.7: Ensure 'Turn On Virtualization Based Security: Kernel-mode H
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows\DeviceGuard" "ConfigureKernelShadowStacksLaunch"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "77.3" "Turn On Virtualization Based Security: Kernel-mode" $s "CIS 18.9.5.7: ConfigureKernelShadowStacksLaunch: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 77.4 CIS 18.9.7.2: Ensure 'Prevent automatic download of applications associate
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows\Device Metadata" "PreventDeviceMetadataFromNetwork"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "77.4" "Prevent automatic download of applications associa" $s "CIS 18.9.7.2: PreventDeviceMetadataFromNetwork: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 77.5 CIS 18.9.17.1: Ensure 'Enable / disable CLFS logfile authentication' is set
+$val = Get-RegValue "HKLM:\System\CurrentControlSet\Policies" "ClfsAuthenticationChecking"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "77.5" "Enable / disable CLFS logfile authentication : On" $s "CIS 18.9.17.1: ClfsAuthenticationChecking: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 77.6 CIS 18.9.19.2: Ensure 'Configure security policy processing: Do not apply d
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows\Group Policy\{827D319E-6EAC-11D2-A4EA-00C04F79F83A}" "NoBackgroundPolicy"
+$s   = if ($val -eq 0) { "PASS" } elseif ($null -eq $val) { "WARN" } else { "FAIL" }
+Add-Result "77.6" "Configure security policy processing: Do not apply" $s "CIS 18.9.19.2: NoBackgroundPolicy: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 77.7 CIS 18.9.19.4: Ensure 'Continue experiences on this device' is set to 'Disa
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows\System" "EnableCdp"
+$s   = if ($val -eq 0) { "PASS" } elseif ($null -eq $val) { "WARN" } else { "FAIL" }
+Add-Result "77.7" "Continue experiences on this device : Off" $s "CIS 18.9.19.4: EnableCdp: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 77.8 CIS 18.9.19.5: Turn off background refresh of Group Policy (should be Disabled)
+$val = Get-RegValue "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" "DisableBkGndGroupPolicy"
+$s   = if ($null -eq $val) { "PASS" } else { "FAIL" }
+Add-Result "77.8" "GP Background Refresh Enabled" $s "CIS 18.9.19.5: DisableBkGndGroupPolicy: $(if ($null -eq $val) {'Not set (correct - GP refreshes in background)'} else {"$val (should not exist)"})" "CIS"
+
+# 77.9 CIS 18.9.20.1.6: Ensure 'Turn off Internet download for Web publishing and on
+$val = Get-RegValue "HKLM:\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer" "NoWebServices"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "77.9" "Turn off Internet download for Web publishing and " $s "CIS 18.9.20.1.6: NoWebServices: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 77.10 CIS 18.9.26.2: Ensure 'Do not allow password expiration time longer than re
+$val = Get-RegValue "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\LAPS" "PasswordExpirationProtectionEnabled"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "77.10" "Do not allow password expiration time longer than " $s "CIS 18.9.26.2: PasswordExpirationProtectionEnabled: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 77.11 CIS 18.9.26.3: Ensure 'Enable password encryption' is set to 'Enabled
+$val = Get-RegValue "HKLM:\Software\Microsoft\Windows\CurrentVersion\Policies\LAPS" "ADPasswordEncryptionEnabled"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "77.11" "Enable password encryption : On" $s "CIS 18.9.26.3: ADPasswordEncryptionEnabled: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 77.12 CIS 18.9.26.7: Ensure 'Post-authentication actions: Grace period (hours)' i
+$val = Get-RegValue "HKLM:\Software\Microsoft\Windows\CurrentVersion\Policies\LAPS" "PostAuthenticationResetDelay"
+$s   = if ($null -ne $val -and $val -ne "") { "PASS" } else { "WARN" }
+Add-Result "77.12" "Post-authentication actions: Grace period (hours) " $s "CIS 18.9.26.7: PostAuthenticationResetDelay: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 77.13 CIS 18.9.27.1: Ensure 'Allow Custom SSPs and APs to be loaded into LSASS' i
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows\System" "AllowCustomSSPsAPs"
+$s   = if ($val -eq 0) { "PASS" } elseif ($null -eq $val) { "WARN" } else { "FAIL" }
+Add-Result "77.13" "Allow Custom SSPs and APs to be loaded into LSASS " $s "CIS 18.9.27.1: AllowCustomSSPsAPs: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 77.14 CIS 18.9.31.1.1: Ensure 'Block NetBIOS-based discovery for domain controller 
+$val = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Netlogon\Parameters" "BlockNetbiosDiscovery"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "77.14" "Block NetBIOS-based discovery for domain controlle" $s "CIS 18.9.31.1.1: BlockNetbiosDiscovery: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 77.15 CIS 18.9.41.1: Ensure 'Configure SAM change password RPC methods policy' is
+$val = Get-RegValue "HKLM:\Software\Microsoft\Windows\CurrentVersion\Policies\System\SAM" "SamrChangeUserPasswordApiPolicy"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "77.15" "Configure SAM change password RPC methods policy :" $s "CIS 18.9.41.1: SamrChangeUserPasswordApiPolicy: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+
+# ============================================================
+#  SECTION 78: CIS L1 - WINDOWS COMPONENTS (CIS 18.10)  [CIS]
+# ============================================================
+Write-SectionHeader "78. CIS L1 - WINDOWS COMPONENTS (CIS 18.10)" "CIS"
+
+# 78.1 CIS 18.10.4.2: Ensure 'Not allow per-user unsigned packages to install by d
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows\Appx" "DisablePerUserUnsignedPackagesByDefault"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "78.1" "Not allow per-user unsigned packages to install by" $s "CIS 18.10.4.2: DisablePerUserUnsignedPackagesByDefault: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 78.2 CIS 18.10.4.3: Ensure 'Prevent non-admin users from installing packaged Win
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows\Appx" "BlockNonAdminUserInstall"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "78.2" "Prevent non-admin users from installing packaged W" $s "CIS 18.10.4.3: BlockNonAdminUserInstall: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 78.3 CIS 18.10.5.1: Ensure 'Let Windows apps activate with voice while the syste
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows\AppPrivacy" "LetAppsActivateWithVoiceAboveLock"
+$s   = if ($val -eq 2) { "PASS" } else { "WARN" }
+Add-Result "78.3" "Let Windows apps activate with voice while the sys" $s "CIS 18.10.5.1: LetAppsActivateWithVoiceAboveLock: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 78.4 CIS 18.10.15.3: Ensure 'Prevent the use of security questions for local acco
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows\System" "NoLocalPasswordResetQuestions"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "78.4" "Prevent the use of security questions for local ac" $s "CIS 18.10.15.3: NoLocalPasswordResetQuestions: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 78.5 CIS 18.10.18.2: Ensure 'Enable App Installer Experimental Features' is set t
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows\AppInstaller" "EnableExperimentalFeatures"
+$s   = if ($val -eq 0) { "PASS" } elseif ($null -eq $val) { "WARN" } else { "FAIL" }
+Add-Result "78.5" "Enable App Installer Experimental Features : Off" $s "CIS 18.10.18.2: EnableExperimentalFeatures: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 78.6 CIS 18.10.18.3: Ensure 'Enable App Installer Hash Override' is set to 'Disab
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows\AppInstaller" "EnableHashOverride"
+$s   = if ($val -eq 0) { "PASS" } elseif ($null -eq $val) { "WARN" } else { "FAIL" }
+Add-Result "78.6" "Enable App Installer Hash Override : Off" $s "CIS 18.10.18.3: EnableHashOverride: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 78.7 CIS 18.10.18.4: Ensure 'Enable App Installer Local Archive Malware Scan Over
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows\AppInstaller" "EnableLocalArchiveMalwareScanOverride"
+$s   = if ($val -eq 0) { "PASS" } elseif ($null -eq $val) { "WARN" } else { "FAIL" }
+Add-Result "78.7" "Enable App Installer Local Archive Malware Scan Ov" $s "CIS 18.10.18.4: EnableLocalArchiveMalwareScanOverride: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 78.8 CIS 18.10.18.5: Ensure 'Enable App Installer Microsoft Store Source Certific
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows\AppInstaller" "EnableBypassCertificatePinningForMicrosoftStore"
+$s   = if ($val -eq 0) { "PASS" } elseif ($null -eq $val) { "WARN" } else { "FAIL" }
+Add-Result "78.8" "Enable App Installer Microsoft Store Source Certif" $s "CIS 18.10.18.5: EnableBypassCertificatePinningForMicrosoftStore: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 78.9 CIS 18.10.18.6: Ensure 'Enable App Installer ms-appinstaller protocol' is se
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows\AppInstaller" "EnableMSAppInstallerProtocol"
+$s   = if ($val -eq 0) { "PASS" } elseif ($null -eq $val) { "WARN" } else { "FAIL" }
+Add-Result "78.9" "Enable App Installer ms-appinstaller protocol : Of" $s "CIS 18.10.18.6: EnableMSAppInstallerProtocol: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 78.10 CIS 18.10.29.4: Ensure 'Do not apply the Mark of the Web tag to files copied
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows\Explorer" "DisableMotWOnInsecurePathCopy"
+$s   = if ($val -eq 0) { "PASS" } elseif ($null -eq $val) { "WARN" } else { "FAIL" }
+Add-Result "78.10" "Do not apply the Mark of the Web tag to files copi" $s "CIS 18.10.29.4: DisableMotWOnInsecurePathCopy: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 78.11 CIS 18.10.41.1: Ensure 'Block all consumer Microsoft account user authentica
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\MicrosoftAccount" "DisableUserAuth"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "78.11" "Block all consumer Microsoft account user authenti" $s "CIS 18.10.41.1: DisableUserAuth: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 78.12 CIS 18.10.42.4.1: Ensure 'Enable EDR in block mode' is set to 'Enabled
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows Defender\Features" "PassiveRemediation"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "78.12" "Enable EDR in block mode : On" $s "CIS 18.10.42.4.1: PassiveRemediation: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 78.13 CIS 18.10.42.5.1: Ensure 'Configure local setting override for reporting to Mi
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows Defender\Spynet" "LocalSettingOverrideSpynetReporting"
+$s   = if ($val -eq 0) { "PASS" } elseif ($null -eq $val) { "WARN" } else { "FAIL" }
+Add-Result "78.13" "Configure local setting override for reporting to " $s "CIS 18.10.42.5.1: LocalSettingOverrideSpynetReporting: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 78.14 CIS 18.10.42.7.1: Ensure 'Enable file hash computation feature' is set to 'Ena
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows Defender\MpEngine" "EnableFileHashComputation"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "78.14" "Enable file hash computation feature : On" $s "CIS 18.10.42.7.1: EnableFileHashComputation: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 78.15 CIS 18.10.42.10.1: Ensure 'Configure real-time protection and Security Intellig
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows Defender\Real-Time Protection" "OobeEnableRtpAndSigUpdate"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "78.15" "Configure real-time protection and Security Intell" $s "CIS 18.10.42.10.1: OobeEnableRtpAndSigUpdate: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 78.16 CIS 18.10.42.10.4: Ensure 'Turn on behavior monitoring' is set to 'Enabled
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows Defender\Real-Time Protection" "DisableBehaviorMonitoring"
+$s   = if ($val -eq 0) { "PASS" } elseif ($null -eq $val) { "WARN" } else { "FAIL" }
+Add-Result "78.16" "Turn on behavior monitoring : On" $s "CIS 18.10.42.10.4: DisableBehaviorMonitoring: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 78.17 CIS 18.10.42.10.5: Ensure 'Turn on script scanning' is set to 'Enabled
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows Defender\Real-Time Protection" "DisableScriptScanning"
+$s   = if ($val -eq 0) { "PASS" } elseif ($null -eq $val) { "WARN" } else { "FAIL" }
+Add-Result "78.17" "Turn on script scanning : On" $s "CIS 18.10.42.10.5: DisableScriptScanning: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 78.18 CIS 18.10.42.11.1.1.2: Ensure 'Configure Remote Encryption Protection Mode' is set 
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows Defender\Remediation\Behavioral Network Blocks\Brute Force Protection" "BruteForceProtectionConfiguredState"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "78.18" "Configure Remote Encryption Protection Mode : On: " $s "CIS 18.10.42.11.1.1.2: BruteForceProtectionConfiguredState: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 78.19 CIS 18.10.42.13.1: Ensure 'Scan excluded files and directories during quick sca
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows Defender\Scan" "QuickScanIncludeExclusions"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "78.19" "Scan excluded files and directories during quick s" $s "CIS 18.10.42.13.1: QuickScanIncludeExclusions: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 78.20 CIS 18.10.42.13.2: Ensure 'Scan packed executables' is set to 'Enabled
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows Defender\Scan" "DisablePackedExeScanning"
+$s   = if ($val -eq 0) { "PASS" } elseif ($null -eq $val) { "WARN" } else { "FAIL" }
+Add-Result "78.20" "Scan packed executables : On" $s "CIS 18.10.42.13.2: DisablePackedExeScanning: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 78.21 CIS 18.10.42.13.4: Ensure 'Trigger a quick scan after X days without any scans'
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows Defender\Scan" "DaysUntilAggressiveCatchupQuickScan"
+$s   = if ($val -eq 7) { "PASS" } else { "WARN" }
+Add-Result "78.21" "Trigger a quick scan after X days without any scan" $s "CIS 18.10.42.13.4: DaysUntilAggressiveCatchupQuickScan: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 78.22 CIS 18.10.42.17: Ensure 'Control whether exclusions are visible to local user
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows Defender" "HideExclusionsFromLocalUsers"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "78.22" "Control whether exclusions are visible to local us" $s "CIS 18.10.42.17: HideExclusionsFromLocalUsers: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 78.23 CIS 18.10.43.1: Ensure 'Allow auditing events in Microsoft Defender Applicat
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\AppHVSI" "AuditApplicationGuard"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "78.23" "Allow auditing events in Microsoft Defender Applic" $s "CIS 18.10.43.1: AuditApplicationGuard: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 78.24 CIS 18.10.43.2: Ensure 'Allow camera and microphone access in Microsoft Defe
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\AppHVSI" "AllowCameraMicrophoneRedirection"
+$s   = if ($val -eq 0) { "PASS" } elseif ($null -eq $val) { "WARN" } else { "FAIL" }
+Add-Result "78.24" "Allow camera and microphone access in Microsoft De" $s "CIS 18.10.43.2: AllowCameraMicrophoneRedirection: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 78.25 CIS 18.10.43.4: Ensure 'Allow files to download and save to the host operati
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\AppHVSI" "SaveFilesToHost"
+$s   = if ($val -eq 0) { "PASS" } elseif ($null -eq $val) { "WARN" } else { "FAIL" }
+Add-Result "78.25" "Allow files to download and save to the host opera" $s "CIS 18.10.43.4: SaveFilesToHost: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 78.26 CIS 18.10.57.3.9.2: Ensure 'Require secure RPC communication' is set to 'Enabled
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows NT\Terminal Services" "fEncryptRPCTraffic"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "78.26" "Require secure RPC communication : On" $s "CIS 18.10.57.3.9.2: fEncryptRPCTraffic: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 78.27 CIS 18.10.57.3.9.3: Ensure 'Require use of specific security layer for remote (R
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows NT\Terminal Services" "SecurityLayer"
+$s   = if ($val -eq 2) { "PASS" } else { "WARN" }
+Add-Result "78.27" "Require use of specific security layer for remote " $s "CIS 18.10.57.3.9.3: SecurityLayer: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 78.28 CIS 18.10.59.4: Ensure 'Allow Cortana above lock screen' is set to 'Disabled
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows\Windows Search" "AllowCortanaAboveLock"
+$s   = if ($val -eq 0) { "PASS" } elseif ($null -eq $val) { "WARN" } else { "FAIL" }
+Add-Result "78.28" "Allow Cortana above lock screen : Off" $s "CIS 18.10.59.4: AllowCortanaAboveLock: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 78.29 CIS 18.10.59.6: Ensure 'Allow search and Cortana to use location' is set to 
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows\Windows Search" "AllowSearchToUseLocation"
+$s   = if ($val -eq 0) { "PASS" } elseif ($null -eq $val) { "WARN" } else { "FAIL" }
+Add-Result "78.29" "Allow search and Cortana to use location : Off" $s "CIS 18.10.59.6: AllowSearchToUseLocation: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 78.30 CIS 18.10.66.3: Ensure 'Turn off the offer to update to the latest version o
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\WindowsStore" "DisableOSUpgrade"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "78.30" "Turn off the offer to update to the latest version" $s "CIS 18.10.66.3: DisableOSUpgrade: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 78.31 CIS 18.10.73.1: Ensure 'Allow Recall to be enabled' is set to 'Disabled
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows\WindowsAI" "AllowRecallEnablement"
+$s   = if ($val -eq 0) { "PASS" } elseif ($null -eq $val) { "WARN" } else { "FAIL" }
+Add-Result "78.31" "Allow Recall to be enabled : Off" $s "CIS 18.10.73.1: AllowRecallEnablement: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 78.32 CIS 18.10.77.1.1: Ensure 'Automatic Data Collection' is set to 'Enabled
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows\WTDS\Components" "CaptureThreatWindow"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "78.32" "Automatic Data Collection : On" $s "CIS 18.10.77.1.1: CaptureThreatWindow: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 78.33 CIS 18.10.77.1.2: Ensure 'Notify Malicious' is set to 'Enabled
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows\WTDS\Components" "NotifyMalicious"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "78.33" "Notify Malicious : On" $s "CIS 18.10.77.1.2: NotifyMalicious: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 78.34 CIS 18.10.77.1.3: Ensure 'Notify Password Reuse' is set to 'Enabled
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows\WTDS\Components" "NotifyPasswordReuse"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "78.34" "Notify Password Reuse : On" $s "CIS 18.10.77.1.3: NotifyPasswordReuse: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 78.35 CIS 18.10.77.1.4: Ensure 'Notify Unsafe App' is set to 'Enabled
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows\WTDS\Components" "NotifyUnsafeApp"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "78.35" "Notify Unsafe App : On" $s "CIS 18.10.77.1.4: NotifyUnsafeApp: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 78.36 CIS 18.10.77.1.5: Ensure 'Service Enabled' is set to 'Enabled
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows\WTDS\Components" "ServiceEnabled"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "78.36" "WTDS Service Enabled" $s "CIS 18.10.77.1.5: ServiceEnabled: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 78.37 CIS 18.10.80.1: Ensure 'Enable ESS with Supported Peripherals' is set to 'En
+$val = Get-RegValue "HKLM:\Software\Microsoft\Policies\PassportForWork\Biometrics" "EnableESSwithSupportedPeripherals"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "78.37" "Enable ESS with Supported Peripherals : On: 1" $s "CIS 18.10.80.1: EnableESSwithSupportedPeripherals: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 78.38 CIS 18.10.81.2: Ensure 'Allow Windows Ink Workspace' is set to 'Enabled: On,
+$val = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\WindowsInkWorkspace" "AllowWindowsInkWorkspace"
+$s   = if ($val -eq 0) { "PASS" } elseif ($null -eq $val) { "WARN" } else { "FAIL" }
+Add-Result "78.38" "Allow Windows Ink Workspace : On: On, but disallow" $s "CIS 18.10.81.2: AllowWindowsInkWorkspace: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 78.39 CIS 18.10.82.1: Ensure 'Allow user control over installs' is set to 'Disable
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows\Installer" "EnableUserControl"
+$s   = if ($val -eq 0) { "PASS" } elseif ($null -eq $val) { "WARN" } else { "FAIL" }
+Add-Result "78.39" "Allow user control over installs : Off" $s "CIS 18.10.82.1: EnableUserControl: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 78.40 CIS 18.10.83.1: Ensure 'Configure the transmission of the user's password in
+$val = Get-RegValue "HKLM:\Software\Microsoft\Windows\CurrentVersion\Policies\System" "EnableMPR"
+$s   = if ($val -eq 0) { "PASS" } elseif ($null -eq $val) { "WARN" } else { "FAIL" }
+Add-Result "78.40" "MPR: Do Not Transmit User Password" $s "CIS 18.10.83.1: EnableMPR: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 78.41 CIS 18.10.90.1.3: Ensure 'Disallow Digest authentication' is set to 'Enabled
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows\WinRM\Client" "AllowDigest"
+$s   = if ($val -eq 0) { "PASS" } elseif ($null -eq $val) { "WARN" } else { "FAIL" }
+Add-Result "78.41" "Disallow Digest authentication : On" $s "CIS 18.10.90.1.3: AllowDigest: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 78.42 CIS 18.10.92.1: Ensure 'Allow clipboard sharing with Windows Sandbox' is set
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows\Sandbox" "AllowClipboardRedirection"
+$s   = if ($val -eq 0) { "PASS" } elseif ($null -eq $val) { "WARN" } else { "FAIL" }
+Add-Result "78.42" "Allow clipboard sharing with Windows Sandbox : Off" $s "CIS 18.10.92.1: AllowClipboardRedirection: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 78.43 CIS 18.10.92.3: Ensure 'Allow networking in Windows Sandbox' is set to 'Disa
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows\Sandbox" "AllowNetworking"
+$s   = if ($val -eq 0) { "PASS" } elseif ($null -eq $val) { "WARN" } else { "FAIL" }
+Add-Result "78.43" "Allow networking in Windows Sandbox : Off" $s "CIS 18.10.92.3: AllowNetworking: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 78.44 CIS 18.10.93.2.1: Ensure 'Prevent users from modifying settings' is set to 'En
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows Defender Security Center\App and Browser protection" "DisallowExploitProtectionOverride"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "78.44" "Prevent users from modifying settings : On" $s "CIS 18.10.93.2.1: DisallowExploitProtectionOverride: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 78.45 CIS 18.10.94.2.2: Ensure 'Configure Automatic Updates: Scheduled install day' 
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows\WindowsUpdate\AU" "ScheduledInstallDay"
+$s   = if ($val -eq 0) { "PASS" } elseif ($null -eq $val) { "WARN" } else { "FAIL" }
+Add-Result "78.45" "Configure Automatic Updates: Scheduled install day" $s "CIS 18.10.94.2.2: ScheduledInstallDay: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 78.46 CIS 18.10.94.2.3: Ensure 'Enable features introduced via servicing that are of
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows\WindowsUpdate" "AllowTemporaryEnterpriseFeatureControl"
+$s   = if ($val -eq 0) { "PASS" } elseif ($null -eq $val) { "WARN" } else { "FAIL" }
+Add-Result "78.46" "Enable features introduced via servicing that are " $s "CIS 18.10.94.2.3: AllowTemporaryEnterpriseFeatureControl: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 78.47 CIS 18.10.94.4.1: Ensure 'Manage preview builds' is set to 'Disabled
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows\WindowsUpdate" "ManagePreviewBuildsPolicyValue"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "78.47" "Manage preview builds : Off" $s "CIS 18.10.94.4.1: ManagePreviewBuildsPolicyValue: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 78.48 CIS 18.10.94.4.3: Ensure 'Enable optional updates' is set to 'Disabled
+$val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows\WindowsUpdate" "SetAllowOptionalContent"
+$s   = if ($val -eq 0) { "PASS" } elseif ($null -eq $val) { "WARN" } else { "FAIL" }
+Add-Result "78.48" "Enable optional updates : Off" $s "CIS 18.10.94.4.3: SetAllowOptionalContent: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+
+# ============================================================
+#  SECTION 79: CIS L1 - WIFI & USER TEMPLATES (CIS 18.11/19.7)  [CIS]
+# ============================================================
+Write-SectionHeader "79. CIS L1 - WIFI & USER TEMPLATES (CIS 18.11/19.7)" "CIS"
+
+# 79.1 CIS 18.11.1: Ensure 'Disable HTTP proxy features: Disable WPAD' is set to
+$val = Get-RegValue "HKLM:\Software\Microsoft\Windows\CurrentVersion\Internet Settings\WinHttp" "DisableWpad"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "79.1" "Disable HTTP proxy features: Disable WPAD : On: Ch" $s "CIS 18.11.1: DisableWpad: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 79.2 CIS 18.11.2: Ensure 'Disable HTTP proxy features: Disable proxy authentic
+$val = Get-RegValue "HKLM:\Software\Microsoft\Windows\CurrentVersion\Internet Settings" "DisableProxyAuthenticationSchemes"
+$s   = if ($val -eq 256) { "PASS" } else { "WARN" }
+Add-Result "79.2" "Disable HTTP proxy features: Disable proxy authent" $s "CIS 18.11.2: DisableProxyAuthenticationSchemes: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 79.3 CIS 19.7.8.5: Ensure 'Turn off Spotlight collection on Desktop' is set to 
+$val = Get-RegValue "HKCU:\Software\Policies\Microsoft\Windows\CloudContent" "DisableSpotlightCollectionOnDesktop"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "79.3" "Turn off Spotlight collection on Desktop : On" $s "CIS 19.7.8.5: DisableSpotlightCollectionOnDesktop: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 79.4 CIS 19.7.26.1: Ensure 'Prevent users from sharing files within their profil
+$val = Get-RegValue "HKCU:\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer" "NoInplaceSharing"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "79.4" "Prevent users from sharing files within their prof" $s "CIS 19.7.26.1: NoInplaceSharing: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
 # ============================================================
 #  CLEAN UP
 # ============================================================
@@ -4051,6 +4777,15 @@ $summaryLines = @(
     "  68.  CIS L1 Device Guard/VBS  (CIS L1 18.8.5)",
     "  69.  CIS L1 Logon/Cred UI     (CIS L1 18.8.28/18.9.15)",
     "  70.  CIS L1 Addit. Admin Tmpl (CIS L1 18.x)",
+    "  71.  CIS L1 Lockout/Rights/Sec (CIS L1 1.2/2.2/2.3)",
+    "  72.  CIS L1 FW Policy Logging  (CIS L1 9.x)",
+    "  73.  CIS L1 Audit Policy Add'l (CIS L1 17.x)",
+    "  74.  CIS L1 Personalization     (CIS L1 18.1)",
+    "  75.  CIS L1 MSS/Network/SMB    (CIS L1 18.5/18.6)",
+    "  76.  CIS L1 Printer Security    (CIS L1 18.7)",
+    "  77.  CIS L1 System Templates    (CIS L1 18.9)",
+    "  78.  CIS L1 Windows Components  (CIS L1 18.10)",
+    "  79.  CIS L1 WiFi/User Templates (CIS L1 18.11/19.7)",
     "========================================================================"
 )
 
