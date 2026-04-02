@@ -543,7 +543,7 @@ foreach ($profile in @("Domain","Private","Public")) {
 
         # CIS 9.x.6: Log successful connections
         $logAllowed = $fw.LogAllowed
-        $s = if ($logAllowed -eq $true) { "PASS" } else { "WARN" }
+        $s = if ($logAllowed -eq 1 -or $logAllowed -eq $true) { "PASS" } else { "WARN" }
         Add-Result "5.A$($profile[0])" "Firewall Log Successful Conns: $profile" $s "CIS 9.x.6: LogAllowed: $logAllowed"
     } else {
         Add-Result "5.$($profile[0])" "Firewall Profile: $profile" "WARN" "Could not retrieve profile"
@@ -3809,8 +3809,8 @@ Add-Result "70.3" "Domain Users Elevate for Network Loc" $s "CIS 18.5.11.3: NC_S
 
 # 70.4 Turn off Windows Connect Now wizards
 $val = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WCN\Registrars" "DisableFlashConfigRegistrar"
-$s   = if ($val -eq 0) { "PASS" } else { "WARN" }
-Add-Result "70.4" "Windows Connect Now Wizards Disabled" $s "CIS 18.5.23.2.1: DisableFlashConfigRegistrar: $(if ($null -eq $val) {'Not set'} else {$val}) (0=Disabled)" "CIS"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "70.4" "Windows Connect Now Wizards Disabled" $s "CIS 18.5.23.2.1: DisableFlashConfigRegistrar: $(if ($null -eq $val) {'Not set'} else {$val}) (1=Disabled)" "CIS"
 
 # 70.5 Allow Microsoft accounts to be optional
 $val = Get-RegValue "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" "MSAOptional"
