@@ -4289,7 +4289,7 @@ Add-Result "77.7" "Continue experiences on this device : Off" $s "CIS 18.9.19.4:
 # 77.8 CIS 18.9.19.5: Turn off background refresh of Group Policy (should be Disabled)
 $val = Get-RegValue "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" "DisableBkGndGroupPolicy"
 $s   = if ($null -eq $val) { "PASS" } else { "FAIL" }
-Add-Result "77.8" "GP Background Refresh Not Disabled" $s "CIS 18.9.19.5: DisableBkGndGroupPolicy: $(if ($null -eq $val) {'Not set (correct - GP refreshes in background)'} else {"$val (should not exist)"})" "CIS"
+Add-Result "77.8" "GP Background Refresh Enabled" $s "CIS 18.9.19.5: DisableBkGndGroupPolicy: $(if ($null -eq $val) {'Not set (correct - GP refreshes in background)'} else {"$val (should not exist)"})" "CIS"
 
 # 77.9 CIS 18.9.20.1.6: Ensure 'Turn off Internet download for Web publishing and on
 $val = Get-RegValue "HKLM:\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer" "NoWebServices"
@@ -4510,7 +4510,7 @@ Add-Result "78.35" "Notify Unsafe App : On" $s "CIS 18.10.77.1.4: NotifyUnsafeAp
 # 78.36 CIS 18.10.77.1.5: Ensure 'Service Enabled' is set to 'Enabled
 $val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows\WTDS\Components" "ServiceEnabled"
 $s   = if ($val -eq 1) { "PASS" } else { "WARN" }
-Add-Result "78.36" "Service On : On" $s "CIS 18.10.77.1.5: ServiceEnabled: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+Add-Result "78.36" "WTDS Service Enabled" $s "CIS 18.10.77.1.5: ServiceEnabled: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
 
 # 78.37 CIS 18.10.80.1: Ensure 'Enable ESS with Supported Peripherals' is set to 'En
 $val = Get-RegValue "HKLM:\Software\Microsoft\Policies\PassportForWork\Biometrics" "EnableESSwithSupportedPeripherals"
@@ -4530,7 +4530,7 @@ Add-Result "78.39" "Allow user control over installs : Off" $s "CIS 18.10.82.1: 
 # 78.40 CIS 18.10.83.1: Ensure 'Configure the transmission of the user's password in
 $val = Get-RegValue "HKLM:\Software\Microsoft\Windows\CurrentVersion\Policies\System" "EnableMPR"
 $s   = if ($val -eq 0) { "PASS" } elseif ($null -eq $val) { "WARN" } else { "FAIL" }
-Add-Result "78.40" "Configure the transmission of the users password i" $s "CIS 18.10.83.1: EnableMPR: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+Add-Result "78.40" "MPR: Do Not Transmit User Password" $s "CIS 18.10.83.1: EnableMPR: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
 
 # 78.41 CIS 18.10.90.1.3: Ensure 'Disallow Digest authentication' is set to 'Enabled
 $val = Get-RegValue "HKLM:\Software\Policies\Microsoft\Windows\WinRM\Client" "AllowDigest"
