@@ -297,6 +297,11 @@ if ($Script:EntraJoined -and -not $Script:HybridJoined) {
     $s = if ($reversible -eq "0") { "PASS" } else { "FAIL" }
     Add-Result "1.6" "No Reversible Encryption" $s "Both CIS & NCSC: must be disabled. Got: $(if ($reversible -eq '0') {'Disabled'} else {'ENABLED - immediate risk'})"
 
+    # ------ CIS 1.1.7: RELAX MINIMUM PASSWORD LENGTH LIMITS ------
+    $relaxLen = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\SAM" "RelaxMinimumPasswordLengthLimits"
+    $s = if ($relaxLen -eq 1) { "PASS" } else { "WARN" }
+    Add-Result "1.7" "Relax Min Password Length Limits" $s "CIS 1.1.7: RelaxMinimumPasswordLengthLimits: $(if ($null -eq $relaxLen) {'Not set'} else {$relaxLen}) (1=Enabled, allows >14 chars)" "CIS"
+
     # ------ NCSC: BREACH / COMPROMISE MONITORING ------
     # NCSC recommends passwords are only changed on known compromise.
     # Check for Entra Password Protection agent (hybrid) or HIBP-style tooling indicators.
@@ -337,6 +342,11 @@ if ($Script:EntraJoined -and -not $Script:HybridJoined) {
 
     $s = if ([int]$resetCount -ge 15) { "PASS" } else { "FAIL" }
     Add-Result "2.3" "Reset Lockout Counter" $s "Required >=15 mins, Got: $resetCount mins"
+
+    # CIS 1.2.4: Allow Administrator Account Lockout
+    $adminLockout = Get-SecEditValue "AllowAdministratorLockout"
+    $s = if ($adminLockout -eq "1") { "PASS" } else { "WARN" }
+    Add-Result "2.4" "Allow Admin Account Lockout" $s "CIS 1.2.4: AllowAdministratorLockout: $(if ($null -eq $adminLockout) {'Not set'} else {$adminLockout}) (1=Enabled)" "CIS"
 }
 
 # ============================================================
@@ -525,6 +535,16 @@ foreach ($profile in @("Domain","Private","Public")) {
 
         $s = if ($fw.LogBlocked -eq $true) { "PASS" } else { "WARN" }
         Add-Result "5.L$($profile[0])" "Firewall Log Dropped Packets: $profile" $s "LogBlocked: $($fw.LogBlocked)"
+
+        # CIS 9.x.4: Firewall log file size >= 16384 KB
+        $logSize = $fw.LogMaxSizeKilobytes
+        $s = if ($null -ne $logSize -and [int]$logSize -ge 16384) { "PASS" } else { "WARN" }
+        Add-Result "5.S$($profile[0])" "Firewall Log Size: $profile" $s "CIS 9.x.4: LogMaxSizeKilobytes: $(if ($null -eq $logSize) {'Default (4096)'} else {"$logSize KB"}) (>=16384 KB)"
+
+        # CIS 9.x.6: Log successful connections
+        $logAllowed = $fw.LogAllowed
+        $s = if ($logAllowed -eq $true) { "PASS" } else { "WARN" }
+        Add-Result "5.A$($profile[0])" "Firewall Log Successful Conns: $profile" $s "CIS 9.x.6: LogAllowed: $logAllowed"
     } else {
         Add-Result "5.$($profile[0])" "Firewall Profile: $profile" "WARN" "Could not retrieve profile"
     }
@@ -604,6 +624,31 @@ Add-Result "7.2" "SMB Client Signing Required" $s "RequireSecuritySignature: $sm
 $smbSignServer = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters" "RequireSecuritySignature"
 $s = if ($smbSignServer -eq 1) { "PASS" } else { "WARN" }
 Add-Result "7.3" "SMB Server Signing Required" $s "RequireSecuritySignature: $smbSignServer"
+
+# CIS 2.3.8.2: SMB client: Digitally sign if server agrees
+$smbClientEnableSig = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\LanmanWorkstation\Parameters" "EnableSecuritySignature"
+$s = if ($smbClientEnableSig -eq 1) { "PASS" } else { "WARN" }
+Add-Result "7.4" "SMB Client Signing If Server Agrees" $s "CIS 2.3.8.2: EnableSecuritySignature: $smbClientEnableSig"
+
+# CIS 2.3.8.3: SMB client: Send unencrypted password to third-party servers - Disabled
+$smbPlainPwd = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\LanmanWorkstation\Parameters" "EnablePlainTextPassword"
+$s = if ($smbPlainPwd -eq 0 -or $null -eq $smbPlainPwd) { "PASS" } else { "FAIL" }
+Add-Result "7.5" "SMB Client: No Unencrypted Password" $s "CIS 2.3.8.3: EnablePlainTextPassword: $(if ($null -eq $smbPlainPwd) {'Not set (disabled)'} else {$smbPlainPwd})"
+
+# CIS 2.3.9.1: SMB server: Idle time before disconnecting - <= 15 mins
+$smbAutoDisconn = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters" "AutoDisconnect"
+$s = if ($null -eq $smbAutoDisconn -or [int]$smbAutoDisconn -le 15) { "PASS" } else { "WARN" }
+Add-Result "7.6" "SMB Server: Idle Disconnect <= 15 min" $s "CIS 2.3.9.1: AutoDisconnect: $(if ($null -eq $smbAutoDisconn) {'Default (15)'} else {$smbAutoDisconn})"
+
+# CIS 2.3.9.3: SMB server: Digitally sign if client agrees
+$smbServerEnableSig = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters" "EnableSecuritySignature"
+$s = if ($smbServerEnableSig -eq 1) { "PASS" } else { "WARN" }
+Add-Result "7.7" "SMB Server Signing If Client Agrees" $s "CIS 2.3.9.3: EnableSecuritySignature: $smbServerEnableSig"
+
+# CIS 2.3.9.4: SMB server: Disconnect clients when logon hours expire - Enabled
+$smbForceLogoff = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters" "EnableForcedLogOff"
+$s = if ($smbForceLogoff -eq 1 -or $null -eq $smbForceLogoff) { "PASS" } else { "FAIL" }
+Add-Result "7.8" "SMB Server: Disconnect on Logon Expire" $s "CIS 2.3.9.4: EnableForcedLogOff: $(if ($null -eq $smbForceLogoff) {'Default (1)'} else {$smbForceLogoff})"
 
 # ============================================================
 #  SECTION 8: AUTORUN / AUTOPLAY  [CIS]
@@ -1885,32 +1930,32 @@ Add-Result "34.4" "Password Expiry Warning >= 14 Days" $s "PasswordExpiryWarning
 # Domain member: Digitally encrypt or sign secure channel data (always)
 $scEncAlways = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\Netlogon\Parameters" "RequireSignOrSeal"
 $s = if ($scEncAlways -eq 1) { "PASS" } else { "FAIL" }
-Add-Result "34.5" "Secure Channel: Always Sign or Encrypt" $s "RequireSignOrSeal: $scEncAlways" "CIS-L2"
+Add-Result "34.5" "Secure Channel: Always Sign or Encrypt" $s "RequireSignOrSeal: $scEncAlways" "CIS"
 
 # Domain member: Digitally encrypt secure channel data when possible
 $scEnc = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\Netlogon\Parameters" "SealSecureChannel"
 $s = if ($scEnc -eq 1) { "PASS" } else { "WARN" }
-Add-Result "34.6" "Secure Channel: Encrypt When Possible" $s "SealSecureChannel: $scEnc" "CIS-L2"
+Add-Result "34.6" "Secure Channel: Encrypt When Possible" $s "SealSecureChannel: $scEnc" "CIS"
 
 # Domain member: Digitally sign secure channel data when possible
 $scSign = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\Netlogon\Parameters" "SignSecureChannel"
 $s = if ($scSign -eq 1) { "PASS" } else { "WARN" }
-Add-Result "34.7" "Secure Channel: Sign When Possible" $s "SignSecureChannel: $scSign" "CIS-L2"
+Add-Result "34.7" "Secure Channel: Sign When Possible" $s "SignSecureChannel: $scSign" "CIS"
 
 # Domain member: Maximum machine account password age - <= 30 days
 $machPwdAge = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\Netlogon\Parameters" "MaximumPasswordAge"
 $s = if ($null -eq $machPwdAge -or ([int]$machPwdAge -le 30 -and [int]$machPwdAge -ge 1)) { "PASS" } else { "WARN" }
-Add-Result "34.8" "Machine Account Password Age <= 30 Days" $s "MaximumPasswordAge: $(if ($null -eq $machPwdAge) {'Default (30)'} else {$machPwdAge})" "CIS-L2"
+Add-Result "34.8" "Machine Account Password Age <= 30 Days" $s "MaximumPasswordAge: $(if ($null -eq $machPwdAge) {'Default (30)'} else {$machPwdAge})" "CIS"
 
 # Domain member: Require strong session key
 $strongKey = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\Netlogon\Parameters" "RequireStrongKey"
 $s = if ($strongKey -eq 1) { "PASS" } else { "FAIL" }
-Add-Result "34.9" "Domain Member: Require Strong Session Key" $s "RequireStrongKey: $strongKey" "CIS-L2"
+Add-Result "34.9" "Domain Member: Require Strong Session Key" $s "RequireStrongKey: $strongKey" "CIS"
 
 # Network access: Allow anonymous SID/Name translation - Disabled
 $anonSID = Get-SecEditValue "LSAAnonymousNameLookup"
 $s = if ($anonSID -eq "0") { "PASS" } else { "FAIL" }
-Add-Result "34.10" "No Anonymous SID/Name Translation" $s "LSAAnonymousNameLookup: $(if ($null -eq $anonSID) {'Not set'} else {$anonSID}) (0=Disabled)" "CIS-L2"
+Add-Result "34.10" "No Anonymous SID/Name Translation" $s "LSAAnonymousNameLookup: $(if ($null -eq $anonSID) {'Not set'} else {$anonSID}) (0=Disabled)" "CIS"
 
 # Network access: Do not allow storage of passwords and credentials
 $noCredStore = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" "DisableDomainCreds"
@@ -1920,7 +1965,7 @@ Add-Result "34.11" "No Storage of Network Passwords" $s "DisableDomainCreds: $no
 # Network access: Let Everyone permissions apply to anonymous users - Disabled
 $everyoneAnon = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" "EveryoneIncludesAnonymous"
 $s = if ($everyoneAnon -eq 0 -or $null -eq $everyoneAnon) { "PASS" } else { "FAIL" }
-Add-Result "34.12" "Everyone Does Not Include Anonymous" $s "EveryoneIncludesAnonymous: $(if ($null -eq $everyoneAnon) {'Default (0)'} else {$everyoneAnon})" "CIS-L2"
+Add-Result "34.12" "Everyone Does Not Include Anonymous" $s "EveryoneIncludesAnonymous: $(if ($null -eq $everyoneAnon) {'Default (0)'} else {$everyoneAnon})" "CIS"
 
 # Network security: Allow LocalSystem NULL session fallback - Disabled
 $nullSession = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\MSV1_0" "allownullsessionfallback"
@@ -1935,12 +1980,12 @@ Add-Result "34.14" "PKU2U Authentication Disabled" $s "AllowOnlineID: $(if ($nul
 # Network security: Do not store LAN Manager hash
 $noLMHash = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" "NoLMHash"
 $s = if ($noLMHash -eq 1) { "PASS" } else { "FAIL" }
-Add-Result "34.15" "Do Not Store LAN Manager Hash" $s "NoLMHash: $noLMHash" "CIS-L2"
+Add-Result "34.15" "Do Not Store LAN Manager Hash" $s "NoLMHash: $noLMHash" "CIS"
 
 # Network security: Kerberos encryption types
 $kerbEnc = Get-RegValue "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\Kerberos\Parameters" "SupportedEncryptionTypes"
 $s = if ($kerbEnc -eq 2147483640 -or $kerbEnc -ge 24) { "PASS" } else { "WARN" }
-Add-Result "34.16" "Kerberos: Strong Encryption Types Only" $s "SupportedEncryptionTypes: $kerbEnc (2147483640=AES+Future, 24=AES128+AES256)" "CIS-L2"
+Add-Result "34.16" "Kerberos: Strong Encryption Types Only" $s "SupportedEncryptionTypes: $kerbEnc (2147483640=AES+Future, 24=AES128+AES256)" "CIS"
 
 # Shutdown: Allow shutdown without logon - Disabled
 $shutdownNoLogon = Get-RegValue "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" "ShutdownWithoutLogon"
@@ -1950,7 +1995,7 @@ Add-Result "34.17" "Shutdown Without Logon Disabled" $s "ShutdownWithoutLogon: $
 # System objects: Strengthen default permissions
 $strengthenPerms = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager" "ProtectionMode"
 $s = if ($strengthenPerms -eq 1) { "PASS" } else { "FAIL" }
-Add-Result "34.18" "Strengthen Default Object Permissions" $s "ProtectionMode: $strengthenPerms" "CIS-L2"
+Add-Result "34.18" "Strengthen Default Object Permissions" $s "ProtectionMode: $strengthenPerms" "CIS"
 
 # System settings: Optional subsystems - none (POSIX disabled)
 $optSubsys = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\SubSystems" "Optional"
@@ -1960,7 +2005,7 @@ Add-Result "34.19" "No Optional Subsystems (POSIX Disabled)" $s "Optional subsys
 # Audit: Force audit policy subcategory settings to override
 $forceAudit = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" "SCENoApplyLegacyAuditPolicy"
 $s = if ($forceAudit -eq 1) { "PASS" } else { "FAIL" }
-Add-Result "34.20" "Audit: Subcategory Settings Override Legacy" $s "SCENoApplyLegacyAuditPolicy: $forceAudit" "CIS-L2"
+Add-Result "34.20" "Audit: Subcategory Settings Override Legacy" $s "SCENoApplyLegacyAuditPolicy: $forceAudit" "CIS"
 
 # Audit: Crash on audit failure (CrashOnAuditFail) - L2: 1 = Shutdown if unable to log
 # Note: Value 2 shuts down immediately which is L2 strict. 1 is safer for production.
