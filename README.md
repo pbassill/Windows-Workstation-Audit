@@ -4,7 +4,7 @@ A PowerShell script to audit Windows 10/11 builds against CIS Level 1 & 2, Cyber
 
 ## Overview
 
-This tool performs **416 individual security checks** across **60 audit categories**, covering:
+This tool performs **508 individual security checks** across **66 audit categories**, covering:
 
 - **CIS Microsoft Windows Benchmark Level 1** controls
 - **CIS Microsoft Windows Benchmark Level 2** controls
@@ -108,6 +108,12 @@ Run the script in an elevated PowerShell session:
 | 58 | Internet Explorer / Legacy Browser | CIS L1 |
 | 59 | Windows Event Forwarding | CIS L2 |
 | 60 | Additional Windows Defender Settings | CIS L1/L2 |
+| 61 | CIS L1 — User Rights Assignment | CIS L1 2.2 |
+| 62 | CIS L1 — Security Options (Missing) | CIS L1 2.3/18.3 |
+| 63 | CIS L1 — Administrative Templates (System) | CIS L1 18.1/18.8 |
+| 64 | CIS L1 — Administrative Templates (Windows Components) | CIS L1 18.5/18.9 |
+| 65 | CIS L1 — System Services (Missing) | CIS L1 5.x |
+| 66 | CIS L1 — Administrative Templates (User) | CIS L1 19.x |
 
 ## Changelog
 
