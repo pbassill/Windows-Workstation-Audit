@@ -297,6 +297,11 @@ if ($Script:EntraJoined -and -not $Script:HybridJoined) {
     $s = if ($reversible -eq "0") { "PASS" } else { "FAIL" }
     Add-Result "1.6" "No Reversible Encryption" $s "Both CIS & NCSC: must be disabled. Got: $(if ($reversible -eq '0') {'Disabled'} else {'ENABLED - immediate risk'})"
 
+    # ------ CIS 1.1.7: RELAX MINIMUM PASSWORD LENGTH LIMITS ------
+    $relaxLen = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\SAM" "RelaxMinimumPasswordLengthLimits"
+    $s = if ($relaxLen -eq 1) { "PASS" } else { "WARN" }
+    Add-Result "1.7" "Relax Min Password Length Limits" $s "CIS 1.1.7: RelaxMinimumPasswordLengthLimits: $(if ($null -eq $relaxLen) {'Not set'} else {$relaxLen}) (1=Enabled, allows >14 chars)" "CIS"
+
     # ------ NCSC: BREACH / COMPROMISE MONITORING ------
     # NCSC recommends passwords are only changed on known compromise.
     # Check for Entra Password Protection agent (hybrid) or HIBP-style tooling indicators.
@@ -337,6 +342,11 @@ if ($Script:EntraJoined -and -not $Script:HybridJoined) {
 
     $s = if ([int]$resetCount -ge 15) { "PASS" } else { "FAIL" }
     Add-Result "2.3" "Reset Lockout Counter" $s "Required >=15 mins, Got: $resetCount mins"
+
+    # CIS 1.2.4: Allow Administrator Account Lockout
+    $adminLockout = Get-SecEditValue "AllowAdministratorLockout"
+    $s = if ($adminLockout -eq "1") { "PASS" } else { "WARN" }
+    Add-Result "2.4" "Allow Admin Account Lockout" $s "CIS 1.2.4: AllowAdministratorLockout: $(if ($null -eq $adminLockout) {'Not set'} else {$adminLockout}) (1=Enabled)" "CIS"
 }
 
 # ============================================================
@@ -525,6 +535,16 @@ foreach ($profile in @("Domain","Private","Public")) {
 
         $s = if ($fw.LogBlocked -eq $true) { "PASS" } else { "WARN" }
         Add-Result "5.L$($profile[0])" "Firewall Log Dropped Packets: $profile" $s "LogBlocked: $($fw.LogBlocked)"
+
+        # CIS 9.x.4: Firewall log file size >= 16384 KB
+        $logSize = $fw.LogMaxSizeKilobytes
+        $s = if ($null -ne $logSize -and [int]$logSize -ge 16384) { "PASS" } else { "WARN" }
+        Add-Result "5.S$($profile[0])" "Firewall Log Size: $profile" $s "CIS 9.x.4: LogMaxSizeKilobytes: $(if ($null -eq $logSize) {'Default (4096)'} else {"$logSize KB"}) (>=16384 KB)"
+
+        # CIS 9.x.6: Log successful connections
+        $logAllowed = $fw.LogAllowed
+        $s = if ($logAllowed -eq 1 -or $logAllowed -eq $true) { "PASS" } else { "WARN" }
+        Add-Result "5.A$($profile[0])" "Firewall Log Successful Conns: $profile" $s "CIS 9.x.6: LogAllowed: $logAllowed"
     } else {
         Add-Result "5.$($profile[0])" "Firewall Profile: $profile" "WARN" "Could not retrieve profile"
     }
@@ -604,6 +624,31 @@ Add-Result "7.2" "SMB Client Signing Required" $s "RequireSecuritySignature: $sm
 $smbSignServer = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters" "RequireSecuritySignature"
 $s = if ($smbSignServer -eq 1) { "PASS" } else { "WARN" }
 Add-Result "7.3" "SMB Server Signing Required" $s "RequireSecuritySignature: $smbSignServer"
+
+# CIS 2.3.8.2: SMB client: Digitally sign if server agrees
+$smbClientEnableSig = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\LanmanWorkstation\Parameters" "EnableSecuritySignature"
+$s = if ($smbClientEnableSig -eq 1) { "PASS" } else { "WARN" }
+Add-Result "7.4" "SMB Client Signing If Server Agrees" $s "CIS 2.3.8.2: EnableSecuritySignature: $smbClientEnableSig"
+
+# CIS 2.3.8.3: SMB client: Send unencrypted password to third-party servers - Disabled
+$smbPlainPwd = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\LanmanWorkstation\Parameters" "EnablePlainTextPassword"
+$s = if ($smbPlainPwd -eq 0 -or $null -eq $smbPlainPwd) { "PASS" } else { "FAIL" }
+Add-Result "7.5" "SMB Client: No Unencrypted Password" $s "CIS 2.3.8.3: EnablePlainTextPassword: $(if ($null -eq $smbPlainPwd) {'Not set (disabled)'} else {$smbPlainPwd})"
+
+# CIS 2.3.9.1: SMB server: Idle time before disconnecting - <= 15 mins
+$smbAutoDisconn = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters" "AutoDisconnect"
+$s = if ($null -eq $smbAutoDisconn -or [int]$smbAutoDisconn -le 15) { "PASS" } else { "WARN" }
+Add-Result "7.6" "SMB Server: Idle Disconnect <= 15 min" $s "CIS 2.3.9.1: AutoDisconnect: $(if ($null -eq $smbAutoDisconn) {'Default (15)'} else {$smbAutoDisconn})"
+
+# CIS 2.3.9.3: SMB server: Digitally sign if client agrees
+$smbServerEnableSig = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters" "EnableSecuritySignature"
+$s = if ($smbServerEnableSig -eq 1) { "PASS" } else { "WARN" }
+Add-Result "7.7" "SMB Server Signing If Client Agrees" $s "CIS 2.3.9.3: EnableSecuritySignature: $smbServerEnableSig"
+
+# CIS 2.3.9.4: SMB server: Disconnect clients when logon hours expire - Enabled
+$smbForceLogoff = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters" "EnableForcedLogOff"
+$s = if ($smbForceLogoff -eq 1 -or $null -eq $smbForceLogoff) { "PASS" } else { "FAIL" }
+Add-Result "7.8" "SMB Server: Disconnect on Logon Expire" $s "CIS 2.3.9.4: EnableForcedLogOff: $(if ($null -eq $smbForceLogoff) {'Default (1)'} else {$smbForceLogoff})"
 
 # ============================================================
 #  SECTION 8: AUTORUN / AUTOPLAY  [CIS]
@@ -1885,32 +1930,32 @@ Add-Result "34.4" "Password Expiry Warning >= 14 Days" $s "PasswordExpiryWarning
 # Domain member: Digitally encrypt or sign secure channel data (always)
 $scEncAlways = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\Netlogon\Parameters" "RequireSignOrSeal"
 $s = if ($scEncAlways -eq 1) { "PASS" } else { "FAIL" }
-Add-Result "34.5" "Secure Channel: Always Sign or Encrypt" $s "RequireSignOrSeal: $scEncAlways" "CIS-L2"
+Add-Result "34.5" "Secure Channel: Always Sign or Encrypt" $s "RequireSignOrSeal: $scEncAlways" "CIS"
 
 # Domain member: Digitally encrypt secure channel data when possible
 $scEnc = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\Netlogon\Parameters" "SealSecureChannel"
 $s = if ($scEnc -eq 1) { "PASS" } else { "WARN" }
-Add-Result "34.6" "Secure Channel: Encrypt When Possible" $s "SealSecureChannel: $scEnc" "CIS-L2"
+Add-Result "34.6" "Secure Channel: Encrypt When Possible" $s "SealSecureChannel: $scEnc" "CIS"
 
 # Domain member: Digitally sign secure channel data when possible
 $scSign = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\Netlogon\Parameters" "SignSecureChannel"
 $s = if ($scSign -eq 1) { "PASS" } else { "WARN" }
-Add-Result "34.7" "Secure Channel: Sign When Possible" $s "SignSecureChannel: $scSign" "CIS-L2"
+Add-Result "34.7" "Secure Channel: Sign When Possible" $s "SignSecureChannel: $scSign" "CIS"
 
 # Domain member: Maximum machine account password age - <= 30 days
 $machPwdAge = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\Netlogon\Parameters" "MaximumPasswordAge"
 $s = if ($null -eq $machPwdAge -or ([int]$machPwdAge -le 30 -and [int]$machPwdAge -ge 1)) { "PASS" } else { "WARN" }
-Add-Result "34.8" "Machine Account Password Age <= 30 Days" $s "MaximumPasswordAge: $(if ($null -eq $machPwdAge) {'Default (30)'} else {$machPwdAge})" "CIS-L2"
+Add-Result "34.8" "Machine Account Password Age <= 30 Days" $s "MaximumPasswordAge: $(if ($null -eq $machPwdAge) {'Default (30)'} else {$machPwdAge})" "CIS"
 
 # Domain member: Require strong session key
 $strongKey = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\Netlogon\Parameters" "RequireStrongKey"
 $s = if ($strongKey -eq 1) { "PASS" } else { "FAIL" }
-Add-Result "34.9" "Domain Member: Require Strong Session Key" $s "RequireStrongKey: $strongKey" "CIS-L2"
+Add-Result "34.9" "Domain Member: Require Strong Session Key" $s "RequireStrongKey: $strongKey" "CIS"
 
 # Network access: Allow anonymous SID/Name translation - Disabled
 $anonSID = Get-SecEditValue "LSAAnonymousNameLookup"
 $s = if ($anonSID -eq "0") { "PASS" } else { "FAIL" }
-Add-Result "34.10" "No Anonymous SID/Name Translation" $s "LSAAnonymousNameLookup: $(if ($null -eq $anonSID) {'Not set'} else {$anonSID}) (0=Disabled)" "CIS-L2"
+Add-Result "34.10" "No Anonymous SID/Name Translation" $s "LSAAnonymousNameLookup: $(if ($null -eq $anonSID) {'Not set'} else {$anonSID}) (0=Disabled)" "CIS"
 
 # Network access: Do not allow storage of passwords and credentials
 $noCredStore = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" "DisableDomainCreds"
@@ -1920,7 +1965,7 @@ Add-Result "34.11" "No Storage of Network Passwords" $s "DisableDomainCreds: $no
 # Network access: Let Everyone permissions apply to anonymous users - Disabled
 $everyoneAnon = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" "EveryoneIncludesAnonymous"
 $s = if ($everyoneAnon -eq 0 -or $null -eq $everyoneAnon) { "PASS" } else { "FAIL" }
-Add-Result "34.12" "Everyone Does Not Include Anonymous" $s "EveryoneIncludesAnonymous: $(if ($null -eq $everyoneAnon) {'Default (0)'} else {$everyoneAnon})" "CIS-L2"
+Add-Result "34.12" "Everyone Does Not Include Anonymous" $s "EveryoneIncludesAnonymous: $(if ($null -eq $everyoneAnon) {'Default (0)'} else {$everyoneAnon})" "CIS"
 
 # Network security: Allow LocalSystem NULL session fallback - Disabled
 $nullSession = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\MSV1_0" "allownullsessionfallback"
@@ -1935,12 +1980,12 @@ Add-Result "34.14" "PKU2U Authentication Disabled" $s "AllowOnlineID: $(if ($nul
 # Network security: Do not store LAN Manager hash
 $noLMHash = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" "NoLMHash"
 $s = if ($noLMHash -eq 1) { "PASS" } else { "FAIL" }
-Add-Result "34.15" "Do Not Store LAN Manager Hash" $s "NoLMHash: $noLMHash" "CIS-L2"
+Add-Result "34.15" "Do Not Store LAN Manager Hash" $s "NoLMHash: $noLMHash" "CIS"
 
 # Network security: Kerberos encryption types
 $kerbEnc = Get-RegValue "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\Kerberos\Parameters" "SupportedEncryptionTypes"
 $s = if ($kerbEnc -eq 2147483640 -or $kerbEnc -ge 24) { "PASS" } else { "WARN" }
-Add-Result "34.16" "Kerberos: Strong Encryption Types Only" $s "SupportedEncryptionTypes: $kerbEnc (2147483640=AES+Future, 24=AES128+AES256)" "CIS-L2"
+Add-Result "34.16" "Kerberos: Strong Encryption Types Only" $s "SupportedEncryptionTypes: $kerbEnc (2147483640=AES+Future, 24=AES128+AES256)" "CIS"
 
 # Shutdown: Allow shutdown without logon - Disabled
 $shutdownNoLogon = Get-RegValue "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" "ShutdownWithoutLogon"
@@ -1950,7 +1995,7 @@ Add-Result "34.17" "Shutdown Without Logon Disabled" $s "ShutdownWithoutLogon: $
 # System objects: Strengthen default permissions
 $strengthenPerms = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager" "ProtectionMode"
 $s = if ($strengthenPerms -eq 1) { "PASS" } else { "FAIL" }
-Add-Result "34.18" "Strengthen Default Object Permissions" $s "ProtectionMode: $strengthenPerms" "CIS-L2"
+Add-Result "34.18" "Strengthen Default Object Permissions" $s "ProtectionMode: $strengthenPerms" "CIS"
 
 # System settings: Optional subsystems - none (POSIX disabled)
 $optSubsys = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\SubSystems" "Optional"
@@ -1960,7 +2005,7 @@ Add-Result "34.19" "No Optional Subsystems (POSIX Disabled)" $s "Optional subsys
 # Audit: Force audit policy subcategory settings to override
 $forceAudit = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" "SCENoApplyLegacyAuditPolicy"
 $s = if ($forceAudit -eq 1) { "PASS" } else { "FAIL" }
-Add-Result "34.20" "Audit: Subcategory Settings Override Legacy" $s "SCENoApplyLegacyAuditPolicy: $forceAudit" "CIS-L2"
+Add-Result "34.20" "Audit: Subcategory Settings Override Legacy" $s "SCENoApplyLegacyAuditPolicy: $forceAudit" "CIS"
 
 # Audit: Crash on audit failure (CrashOnAuditFail) - L2: 1 = Shutdown if unable to log
 # Note: Value 2 shuts down immediately which is L2 strict. 1 is safer for production.
@@ -3303,6 +3348,51 @@ $val = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\NetBT\Parameters" "
 $s   = if ($val -eq 2) { "PASS" } else { "WARN" }
 Add-Result "62.12" "NetBT NodeType: P-node Configuration" $s "CIS 18.3.5: NodeType: $(if ($null -eq $val) {'Not set'} else {$val}) (2=P-node)" "CIS"
 
+# 62.13 Accounts: Limit blank password use to console logon only
+$val = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" "LimitBlankPasswordUse"
+$s   = if ($val -eq 1 -or $null -eq $val) { "PASS" } else { "FAIL" }
+Add-Result "62.13" "Limit Blank Password to Console Only" $s "CIS 2.3.1.3: LimitBlankPasswordUse: $(if ($null -eq $val) {'Default (1)'} else {$val}) (1=Console only)" "CIS"
+
+# 62.14 Network access: Restrict anonymous access to Named Pipes and Shares
+$val = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters" "RestrictNullSessAccess"
+$s   = if ($val -eq 1 -or $null -eq $val) { "PASS" } else { "FAIL" }
+Add-Result "62.14" "Restrict Anonymous Named Pipes/Shares" $s "CIS 2.3.10.6: RestrictNullSessAccess: $(if ($null -eq $val) {'Default (1)'} else {$val}) (1=Restricted)" "CIS"
+
+# 62.15 Interactive logon: Machine inactivity limit <= 900 seconds
+$val = Get-RegValue "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" "InactivityTimeoutSecs"
+$s   = if ($null -ne $val -and [int]$val -ge 1 -and [int]$val -le 900) { "PASS" } else { "WARN" }
+Add-Result "62.15" "Machine Inactivity Limit <= 900s" $s "CIS 2.3.7.4: InactivityTimeoutSecs: $(if ($null -eq $val) {'Not set'} else {"${val}s"}) (<=900)" "CIS"
+
+# 62.16 Interactive logon: Message text for users
+$val = Get-RegValue "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" "LegalNoticeText"
+$s   = if ($null -ne $val -and $val -ne "") { "PASS" } else { "WARN" }
+Add-Result "62.16" "Legal Notice Text Configured" $s "CIS 2.3.7.5: LegalNoticeText: $(if ($null -eq $val -or $val -eq '') {'Not set'} else {'Configured'})" "CIS"
+
+# 62.17 Interactive logon: Message title for users
+$val = Get-RegValue "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" "LegalNoticeCaption"
+$s   = if ($null -ne $val -and $val -ne "") { "PASS" } else { "WARN" }
+Add-Result "62.17" "Legal Notice Caption Configured" $s "CIS 2.3.7.6: LegalNoticeCaption: $(if ($null -eq $val -or $val -eq '') {'Not set'} else {'Configured'})" "CIS"
+
+# 62.18 Network access: Remotely accessible registry paths
+$val = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\SecurePipeServers\Winreg\AllowedExactPaths" "Machine"
+$s   = if ($null -ne $val) { "PASS" } else { "WARN" }
+Add-Result "62.18" "Remotely Accessible Registry Paths" $s "CIS 2.3.10.8: AllowedExactPaths: $(if ($null -eq $val) {'Not set'} else {'Configured'})" "CIS"
+
+# 62.19 Network access: Remotely accessible registry paths and sub-paths
+$val = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\SecurePipeServers\Winreg\AllowedPaths" "Machine"
+$s   = if ($null -ne $val) { "PASS" } else { "WARN" }
+Add-Result "62.19" "Remotely Accessible Reg Paths/Sub-Paths" $s "CIS 2.3.10.9: AllowedPaths: $(if ($null -eq $val) {'Not set'} else {'Configured'})" "CIS"
+
+# 62.20 Network security: Allow Local System to use computer identity for NTLM
+$val = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" "UseMachineId"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "62.20" "NTLM: Use Computer Identity" $s "CIS 2.3.11.1: UseMachineId: $(if ($null -eq $val) {'Not set'} else {$val}) (1=Enabled)" "CIS"
+
+# 62.21 UAC: Only elevate UIAccess apps installed in secure locations
+$val = Get-RegValue "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" "EnableSecureUIAPaths"
+$s   = if ($val -eq 1 -or $null -eq $val) { "PASS" } else { "FAIL" }
+Add-Result "62.21" "UAC: UIAccess Secure Location Only" $s "CIS 2.3.17.6: EnableSecureUIAPaths: $(if ($null -eq $val) {'Default (1)'} else {$val}) (1=Secure locations only)" "CIS"
+
 # ============================================================
 #  SECTION 63: CIS L1 - ADMINISTRATIVE TEMPLATES (SYSTEM)  [CIS]
 # ============================================================
@@ -3496,6 +3586,15 @@ $cisL1Services = @(
     @{ Name = "lfsvc";       Label = "Geolocation Service"     }
     @{ Name = "MapsBroker";  Label = "Downloaded Maps Manager" }
     @{ Name = "PcaSvc";      Label = "Program Compat Assistant" }
+    @{ Name = "LxssManager"; Label = "Windows Subsystem Linux" }
+    @{ Name = "SharedAccess"; Label = "Internet Connection Sharing" }
+    @{ Name = "RemoteRegistry"; Label = "Remote Registry"      }
+    @{ Name = "FTPSVC";      Label = "FTP Publishing Service"  }
+    @{ Name = "W3SVC";       Label = "World Wide Web Publishing" }
+    @{ Name = "XblAuthManager"; Label = "Xbox Live Auth Manager" }
+    @{ Name = "XblGameSave"; Label = "Xbox Live Game Save"     }
+    @{ Name = "XboxGipSvc";  Label = "Xbox Accessory Mgmt"    }
+    @{ Name = "XboxNetApiSvc"; Label = "Xbox Live Networking"  }
 )
 
 $svcIdx = 1
@@ -3555,6 +3654,223 @@ Add-Result "66.7" "Screen Saver Password Protected" $s "CIS 19.1.3.2: ScreenSave
 $val = Get-RegValue "HKCU:\Control Panel\Desktop" "ScreenSaveTimeOut"
 $s   = if ($null -ne $val -and [int]$val -gt 0 -and [int]$val -le 900) { "PASS" } else { "WARN" }
 Add-Result "66.8" "Screen Saver Timeout" $s "CIS 19.1.3.3: ScreenSaveTimeOut: $(if ($null -eq $val) {'Not set'} else {"${val}s"}) (<=900)" "CIS"
+
+# ============================================================
+#  SECTION 67: CIS L1 - DATA COLLECTION / TELEMETRY  [CIS]
+# ============================================================
+Write-SectionHeader "67. CIS L1 - DATA COLLECTION / TELEMETRY" "CIS"
+
+# 67.1 Allow Diagnostic Data: Send required diagnostic data only (1) or off (0)
+$val = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection" "AllowTelemetry"
+$s   = if ($null -ne $val -and [int]$val -le 1) { "PASS" } else { "WARN" }
+Add-Result "67.1" "Telemetry: Required Data Only" $s "CIS 18.9.17.1: AllowTelemetry: $(if ($null -eq $val) {'Not set'} else {$val}) (0=Off, 1=Required only)" "CIS"
+
+# 67.2 Configure Authenticated Proxy usage for telemetry - Disabled (0)
+$val = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection" "DisableEnterpriseAuthProxy"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "67.2" "Telemetry: No Authenticated Proxy" $s "CIS 18.9.17.2: DisableEnterpriseAuthProxy: $(if ($null -eq $val) {'Not set'} else {$val}) (1=Disabled)" "CIS"
+
+# 67.3 Disable OneSettings Downloads
+$val = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection" "DisableOneSettingsDownloads"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "67.3" "Telemetry: Disable OneSettings Downloads" $s "CIS 18.9.17.3: DisableOneSettingsDownloads: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 67.4 Do not show feedback notifications
+$val = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection" "DoNotShowFeedbackNotifications"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "67.4" "Telemetry: No Feedback Notifications" $s "CIS 18.9.17.4: DoNotShowFeedbackNotifications: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 67.5 Enable OneSettings Auditing
+$val = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection" "EnableOneSettingsAuditing"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "67.5" "Telemetry: OneSettings Auditing Enabled" $s "CIS 18.9.17.5: EnableOneSettingsAuditing: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 67.6 Limit Diagnostic Log Collection
+$val = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection" "LimitDiagnosticLogCollection"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "67.6" "Telemetry: Limit Diagnostic Logs" $s "CIS 18.9.17.6: LimitDiagnosticLogCollection: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 67.7 Limit Dump Collection
+$val = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection" "LimitDumpCollection"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "67.7" "Telemetry: Limit Dump Collection" $s "CIS 18.9.17.7: LimitDumpCollection: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 67.8 Toggle user control over Insider builds - Disabled
+$val = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\PreviewBuilds" "AllowBuildPreview"
+$s   = if ($val -eq 0) { "PASS" } else { "WARN" }
+Add-Result "67.8" "Insider Builds: User Control Disabled" $s "CIS 18.9.17.8: AllowBuildPreview: $(if ($null -eq $val) {'Not set'} else {$val}) (0=Disabled)" "CIS"
+
+# ============================================================
+#  SECTION 68: CIS L1 - DEVICE GUARD / VBS  [CIS]
+# ============================================================
+Write-SectionHeader "68. CIS L1 - DEVICE GUARD / VBS" "CIS"
+
+$dgBase = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DeviceGuard"
+
+# 68.1 Turn on Virtualization Based Security
+$val = Get-RegValue $dgBase "EnableVirtualizationBasedSecurity"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "68.1" "VBS: Enabled" $s "CIS 18.8.5.1: EnableVirtualizationBasedSecurity: $(if ($null -eq $val) {'Not set'} else {$val}) (1=Enabled)" "CIS"
+
+# 68.2 Platform Security Features - Secure Boot and DMA Protection (3)
+$val = Get-RegValue $dgBase "RequirePlatformSecurityFeatures"
+$s   = if ($val -eq 3) { "PASS" } elseif ($val -eq 1) { "WARN" } else { "WARN" }
+Add-Result "68.2" "VBS: Platform Security Features" $s "CIS 18.8.5.2: RequirePlatformSecurityFeatures: $(if ($null -eq $val) {'Not set'} else {$val}) (1=SecureBoot, 3=SecureBoot+DMA)" "CIS"
+
+# 68.3 Virtualization Based Protection of Code Integrity (HVCI)
+$val = Get-RegValue $dgBase "HypervisorEnforcedCodeIntegrity"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "68.3" "VBS: HVCI Enabled" $s "CIS 18.8.5.3: HypervisorEnforcedCodeIntegrity: $(if ($null -eq $val) {'Not set'} else {$val}) (1=Enabled with UEFI lock)" "CIS"
+
+# 68.4 UEFI Lock for VBS
+$val = Get-RegValue $dgBase "Locked"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "68.4" "VBS: UEFI Lock Enabled" $s "CIS 18.8.5.4: Locked: $(if ($null -eq $val) {'Not set'} else {$val}) (1=UEFI locked)" "CIS"
+
+# 68.5 Credential Guard Configuration
+$val = Get-RegValue $dgBase "LsaCfgFlags"
+$s   = if ($val -eq 1) { "PASS" } elseif ($val -eq 2) { "WARN" } else { "WARN" }
+Add-Result "68.5" "VBS: Credential Guard" $s "CIS 18.8.5.5: LsaCfgFlags: $(if ($null -eq $val) {'Not set'} else {$val}) (1=UEFI lock, 2=No lock)" "CIS"
+
+# 68.6 System Guard Launch - Enabled
+$val = Get-RegValue $dgBase "ConfigureSystemGuardLaunch"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "68.6" "VBS: System Guard Launch" $s "CIS 18.8.5.7: ConfigureSystemGuardLaunch: $(if ($null -eq $val) {'Not set'} else {$val}) (1=Enabled)" "CIS"
+
+# ============================================================
+#  SECTION 69: CIS L1 - LOGON & CREDENTIAL UI  [CIS]
+# ============================================================
+Write-SectionHeader "69. CIS L1 - LOGON & CREDENTIAL UI" "CIS"
+
+# 69.1 Do not display network selection UI on lock screen
+$val = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\System" "DontDisplayNetworkSelectionUI"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "69.1" "No Network Selection UI on Lock Screen" $s "CIS 18.8.28.2: DontDisplayNetworkSelectionUI: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 69.2 Do not enumerate connected users on domain-joined computers
+$val = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\System" "DontEnumerateConnectedUsers"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "69.2" "No Enumerate Connected Users" $s "CIS 18.8.28.3: DontEnumerateConnectedUsers: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 69.3 Enumerate local users on domain-joined computers - Disabled
+$val = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\System" "EnumerateLocalUsers"
+$s   = if ($val -eq 0 -or $null -eq $val) { "PASS" } else { "FAIL" }
+Add-Result "69.3" "No Enumerate Local Users on Domain PC" $s "CIS 18.8.28.4: EnumerateLocalUsers: $(if ($null -eq $val) {'Not set (disabled)'} else {$val}) (0=Disabled)" "CIS"
+
+# 69.4 Turn off app notifications on lock screen
+$val = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\System" "DisableLockScreenAppNotifications"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "69.4" "No App Notifications on Lock Screen" $s "CIS 18.8.28.5: DisableLockScreenAppNotifications: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 69.5 Turn off picture password sign-in
+$val = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\System" "BlockDomainPicturePassword"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "69.5" "Picture Password Sign-In Disabled" $s "CIS 18.8.28.6: BlockDomainPicturePassword: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 69.6 Turn on convenience PIN sign-in - Disabled
+$val = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\System" "AllowDomainPINLogon"
+$s   = if ($val -eq 0 -or $null -eq $val) { "PASS" } else { "FAIL" }
+Add-Result "69.6" "Convenience PIN Sign-In Disabled" $s "CIS 18.8.28.7: AllowDomainPINLogon: $(if ($null -eq $val) {'Not set (disabled)'} else {$val}) (0=Disabled)" "CIS"
+
+# 69.7 Do not display the password reveal button
+$val = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CredUI" "DisablePasswordReveal"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "69.7" "Password Reveal Button Disabled" $s "CIS 18.9.15.1: DisablePasswordReveal: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 69.8 Enumerate administrator accounts on elevation - Disabled
+$val = Get-RegValue "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\CredUI" "EnumerateAdministrators"
+$s   = if ($val -eq 0 -or $null -eq $val) { "PASS" } else { "FAIL" }
+Add-Result "69.8" "No Admin Enumeration on Elevation" $s "CIS 18.9.15.2: EnumerateAdministrators: $(if ($null -eq $val) {'Not set (disabled)'} else {$val}) (0=Disabled)" "CIS"
+
+# 69.9 Turn off notifications network usage
+$val = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\PushNotifications" "NoCloudApplicationNotification"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "69.9" "Turn Off Notification Network Usage" $s "CIS 18.8.50.1: NoCloudApplicationNotification: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# ============================================================
+#  SECTION 70: CIS L1 - ADDITIONAL ADMIN TEMPLATES  [CIS]
+# ============================================================
+Write-SectionHeader "70. CIS L1 - ADDITIONAL ADMIN TEMPLATES" "CIS"
+
+# 70.1 Configure SMB v1 client driver - Disabled (4)
+$val = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\mrxsmb10" "Start"
+$s   = if ($val -eq 4) { "PASS" } else { "WARN" }
+Add-Result "70.1" "SMBv1 Client Driver Disabled" $s "CIS 18.3.2: MrxSmb10 Start: $(if ($null -eq $val) {'Not set'} else {$val}) (4=Disabled)" "CIS"
+
+# 70.2 Enable Font Providers - Disabled
+$val = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\System" "EnableFontProviders"
+$s   = if ($val -eq 0) { "PASS" } else { "WARN" }
+Add-Result "70.2" "Font Providers Disabled" $s "CIS 18.5.5.1: EnableFontProviders: $(if ($null -eq $val) {'Not set'} else {$val}) (0=Disabled)" "CIS"
+
+# 70.3 Require domain users to elevate when setting network location
+$val = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Network Connections" "NC_StdDomainUserSetLocation"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "70.3" "Domain Users Elevate for Network Loc" $s "CIS 18.5.11.3: NC_StdDomainUserSetLocation: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 70.4 Turn off Windows Connect Now wizards
+$val = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WCN\Registrars" "DisableFlashConfigRegistrar"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "70.4" "Windows Connect Now Wizards Disabled" $s "CIS 18.5.23.2.1: DisableFlashConfigRegistrar: $(if ($null -eq $val) {'Not set'} else {$val}) (1=Disabled)" "CIS"
+
+# 70.5 Allow Microsoft accounts to be optional
+$val = Get-RegValue "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" "MSAOptional"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "70.5" "Microsoft Accounts Optional" $s "CIS 18.9.3.1: MSAOptional: $(if ($null -eq $val) {'Not set'} else {$val}) (1=Optional)" "CIS"
+
+# 70.6 Turn off cloud optimised content
+$val = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CloudContent" "DisableCloudOptimizedContent"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "70.6" "Cloud Optimised Content Disabled" $s "CIS 18.9.12.2: DisableCloudOptimizedContent: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 70.7 Turn off Microsoft consumer experiences
+$val = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CloudContent" "DisableWindowsConsumerFeatures"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "70.7" "Microsoft Consumer Experiences Off" $s "CIS 18.9.12.3: DisableWindowsConsumerFeatures: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 70.8 Windows Installer: Always install with elevated privileges - Disabled
+$val = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Installer" "AlwaysInstallElevated"
+$s   = if ($val -eq 0 -or $null -eq $val) { "PASS" } else { "FAIL" }
+Add-Result "70.8" "Installer: No Always-Elevated Install" $s "CIS 18.9.45.1: AlwaysInstallElevated: $(if ($null -eq $val) {'Not set (disabled)'} else {$val}) (0=Disabled)" "CIS"
+
+# 70.9 Sign-in and lock last interactive user automatically after restart - Disabled
+$val = Get-RegValue "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" "DisableAutomaticRestartSignOn"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "70.9" "Auto Sign-In After Restart Disabled" $s "CIS 18.9.46.1: DisableAutomaticRestartSignOn: $(if ($null -eq $val) {'Not set'} else {$val}) (1=Disabled)" "CIS"
+
+# 70.10 Restrict RDP users to single session
+$val = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services" "fSingleSessionPerUser"
+$s   = if ($val -eq 1 -or $null -eq $val) { "PASS" } else { "WARN" }
+Add-Result "70.10" "RDP: Single Session Per User" $s "CIS 18.9.65.3.2.1: fSingleSessionPerUser: $(if ($null -eq $val) {'Default (1)'} else {$val})" "CIS"
+
+# 70.11 RDP: Set client connection encryption level - High
+$val = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services" "MinEncryptionLevel"
+$s   = if ($val -eq 3) { "PASS" } else { "WARN" }
+Add-Result "70.11" "RDP: Encryption Level High" $s "CIS 18.9.65.3.4.1: MinEncryptionLevel: $(if ($null -eq $val) {'Not set'} else {$val}) (3=High)" "CIS"
+
+# 70.12 RDP: Do not delete temp folders upon exit - Disabled
+$val = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services" "DeleteTempDirsOnExit"
+$s   = if ($val -eq 1 -or $null -eq $val) { "PASS" } else { "FAIL" }
+Add-Result "70.12" "RDP: Delete Temp Folders on Exit" $s "CIS 18.9.65.3.9.3: DeleteTempDirsOnExit: $(if ($null -eq $val) {'Default (1)'} else {$val}) (1=Delete)" "CIS"
+
+# 70.13 Prevent downloading of enclosures (RSS Feeds)
+$val = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Internet Explorer\Feeds" "DisableEnclosureDownload"
+$s   = if ($val -eq 1) { "PASS" } else { "WARN" }
+Add-Result "70.13" "RSS: Prevent Enclosure Download" $s "CIS 18.9.66.1: DisableEnclosureDownload: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
+
+# 70.14 Windows Error Reporting: Auto-send memory dumps disabled
+$val = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Error Reporting" "AutoApproveOSDumps"
+$s   = if ($val -eq 0 -or $null -eq $val) { "PASS" } else { "FAIL" }
+Add-Result "70.14" "WER: No Auto-Send Memory Dumps" $s "CIS 18.9.85.1: AutoApproveOSDumps: $(if ($null -eq $val) {'Not set (disabled)'} else {$val}) (0=Disabled)" "CIS"
+
+# 70.15 Windows Game Recording and Broadcasting - Disabled
+$val = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\GameDVR" "AllowGameDVR"
+$s   = if ($val -eq 0) { "PASS" } else { "WARN" }
+Add-Result "70.15" "Game Recording/Broadcasting Disabled" $s "CIS 18.9.90.1: AllowGameDVR: $(if ($null -eq $val) {'Not set'} else {$val}) (0=Disabled)" "CIS"
+
+# 70.16 Allow Remote Shell Access - Disabled
+$val = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WinRM\Service\WinRS" "AllowRemoteShellAccess"
+$s   = if ($val -eq 0) { "PASS" } else { "WARN" }
+Add-Result "70.16" "Remote Shell Access Disabled" $s "CIS 18.9.105.1: AllowRemoteShellAccess: $(if ($null -eq $val) {'Not set'} else {$val}) (0=Disabled)" "CIS"
 
 # ============================================================
 #  CLEAN UP
@@ -3731,6 +4047,10 @@ $summaryLines = @(
     "  64.  CIS L1 Admin Tmpl WinCo  (CIS L1 18.5/18.9)",
     "  65.  CIS L1 System Services    (CIS L1 5.x)",
     "  66.  CIS L1 Admin Tmpl User   (CIS L1 19.x)",
+    "  67.  CIS L1 Data/Telemetry    (CIS L1 18.9.17)",
+    "  68.  CIS L1 Device Guard/VBS  (CIS L1 18.8.5)",
+    "  69.  CIS L1 Logon/Cred UI     (CIS L1 18.8.28/18.9.15)",
+    "  70.  CIS L1 Addit. Admin Tmpl (CIS L1 18.x)",
     "========================================================================"
 )
 
