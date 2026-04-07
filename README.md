@@ -36,8 +36,38 @@ No Microsoft Graph or Azure AD module is required — the script uses `dsregcmd`
 Run the script in an elevated PowerShell session:
 
 ```powershell
+# Run the full audit (all frameworks)
 .\audit.ps1
+.\audit.ps1 -Audit all
+
+# Run only Cyber Essentials / CE+ checks
+.\audit.ps1 -Audit ce
+
+# Run only CIS Level 1 checks
+.\audit.ps1 -Audit cis1
+
+# Run only CIS Level 2 checks
+.\audit.ps1 -Audit cis2
+
+# Run only NCSC alignment checks
+.\audit.ps1 -Audit ncsc
+
+# Run only Entra ID / M365 checks
+.\audit.ps1 -Audit entra
 ```
+
+### Audit Scope Options
+
+| Option | Description |
+|--------|-------------|
+| `all` | Full audit across all frameworks (default) |
+| `ce` | Cyber Essentials / CE+ checks only |
+| `cis1` | CIS Level 1 checks only |
+| `cis2` | CIS Level 2 checks only |
+| `ncsc` | NCSC alignment checks only |
+| `entra` | Entra ID / M365 checks only |
+
+> **Note:** PowerShell also accepts the shortened `-Audit` syntax (e.g. `.\audit.ps1 -Audit ce`). The `--audit` double-dash form may work in some PowerShell hosts but `-Audit` is the standard PowerShell syntax.
 
 ## Output
 
@@ -142,6 +172,13 @@ The report is organised into clear, logical sections:
 | 79 | CIS L1 — WiFi & User Templates | CIS L1 18.11/19.7 |
 
 ## Changelog
+
+### v5.2.0 — Audit Scope Selection
+
+- **`-Audit` parameter** added to select which framework to audit: `all` (default), `ce`, `cis1`, `cis2`, `ncsc`, or `entra`
+- Checks outside the selected scope are silently skipped, producing a focused report for the chosen framework
+- Banner, executive summary, and report header display the selected audit scope
+- Fully backwards compatible — running without `-Audit` performs the full audit as before
 
 ### v5.1.0 — Enhanced Reporting & CSV Export
 
