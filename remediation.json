@@ -1,0 +1,207 @@
+[
+  {
+    "id": "1.1",
+    "severity": "Medium",
+    "remediation": "GPO: Computer Config > Policies > Windows Settings > Security Settings > Account Policies > Password Policy > Enforce password history = 24 or more"
+  },
+  {
+    "id": "1.2.CIS",
+    "severity": "Medium",
+    "remediation": "GPO: Computer Config > Policies > Windows Settings > Security Settings > Account Policies > Password Policy > Maximum password age = 365 days or less"
+  },
+  {
+    "id": "1.2.NCSC",
+    "severity": "Medium",
+    "remediation": "GPO: Set Maximum password age to 0 (never expire) or >= 365 days. NCSC recommends no forced expiry; change only on compromise."
+  },
+  {
+    "id": "1.3",
+    "severity": "Medium",
+    "remediation": "GPO: Computer Config > Policies > Windows Settings > Security Settings > Account Policies > Password Policy > Minimum password age = 1 or more days"
+  },
+  {
+    "id": "1.4",
+    "severity": "High",
+    "remediation": "GPO: Computer Config > Policies > Windows Settings > Security Settings > Account Policies > Password Policy > Minimum password length = 14 or more characters"
+  },
+  {
+    "id": "1.5",
+    "severity": "Medium",
+    "remediation": "GPO: Computer Config > Policies > Windows Settings > Security Settings > Account Policies > Password Policy > Password must meet complexity requirements = Enabled"
+  },
+  {
+    "id": "1.6",
+    "severity": "Critical",
+    "remediation": "GPO: Computer Config > Policies > Windows Settings > Security Settings > Account Policies > Password Policy > Store passwords using reversible encryption = Disabled"
+  },
+  {
+    "id": "2.1",
+    "severity": "High",
+    "remediation": "GPO: Computer Config > Policies > Windows Settings > Security Settings > Account Policies > Account Lockout Policy > Account lockout duration = 15 or more minutes"
+  },
+  {
+    "id": "2.2",
+    "severity": "High",
+    "remediation": "GPO: Computer Config > Policies > Windows Settings > Security Settings > Account Policies > Account Lockout Policy > Account lockout threshold = 5 or fewer invalid attempts"
+  },
+  {
+    "id": "2.3",
+    "severity": "Medium",
+    "remediation": "GPO: Computer Config > Policies > Windows Settings > Security Settings > Account Policies > Account Lockout Policy > Reset account lockout counter after = 15 or more minutes"
+  },
+  {
+    "id": "3.1",
+    "severity": "High",
+    "remediation": "GPO: Computer Config > Admin Templates > Windows Components > Remote Desktop Services > Remote Desktop Session Host > Connections > Allow users to connect remotely = Disabled"
+  },
+  {
+    "id": "3.2",
+    "severity": "High",
+    "remediation": "GPO: Computer Config > Admin Templates > Windows Components > Remote Desktop Services > Remote Desktop Session Host > Security > Require use of specific security layer = SSL"
+  },
+  {
+    "id": "3.3",
+    "severity": "High",
+    "remediation": "GPO: Computer Config > Admin Templates > Windows Components > Remote Desktop Services > Remote Desktop Session Host > Security > Set client connection encryption level = High Level"
+  },
+  {
+    "id": "3.4",
+    "severity": "High",
+    "remediation": "GPO: Computer Config > Admin Templates > Windows Components > Remote Desktop Services > Remote Desktop Session Host > Security > Require NLA = Enabled"
+  },
+  {
+    "id": "4.1",
+    "severity": "Critical",
+    "remediation": "Run: net user Administrator /active:no  OR  GPO: Computer Config > Windows Settings > Security Settings > Local Policies > Security Options > Accounts: Administrator account status = Disabled"
+  },
+  {
+    "id": "4.2",
+    "severity": "Critical",
+    "remediation": "Run: net user Guest /active:no  OR  GPO: Computer Config > Windows Settings > Security Settings > Local Policies > Security Options > Accounts: Guest account status = Disabled"
+  },
+  {
+    "id": "5.1",
+    "severity": "Critical",
+    "remediation": "GPO: Computer Config > Windows Settings > Security Settings > Windows Firewall with Advanced Security > Domain Profile > Firewall state = On (recommended)"
+  },
+  {
+    "id": "5.2",
+    "severity": "Critical",
+    "remediation": "GPO: Computer Config > Windows Settings > Security Settings > Windows Firewall with Advanced Security > Private Profile > Firewall state = On (recommended)"
+  },
+  {
+    "id": "5.3",
+    "severity": "Critical",
+    "remediation": "GPO: Computer Config > Windows Settings > Security Settings > Windows Firewall with Advanced Security > Public Profile > Firewall state = On (recommended)"
+  },
+  {
+    "id": "6.1",
+    "severity": "Critical",
+    "remediation": "Run Windows Update immediately. Open Settings > Update & Security > Windows Update > Check for updates. Apply all pending patches."
+  },
+  {
+    "id": "6.2",
+    "severity": "High",
+    "remediation": "GPO: Computer Config > Admin Templates > Windows Components > Windows Update > Configure Automatic Updates = Enabled (4 - Auto download and schedule the install)"
+  },
+  {
+    "id": "7.1",
+    "severity": "High",
+    "remediation": "Run PowerShell: Disable-WindowsOptionalFeature -Online -FeatureName SMB1Protocol -NoRestart  OR  Set registry: HKLM\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters\\SMB1 = 0"
+  },
+  {
+    "id": "8.1",
+    "severity": "Medium",
+    "remediation": "GPO: Computer Config > Admin Templates > Windows Components > AutoPlay Policies > Turn off Autoplay = Enabled (All drives)"
+  },
+  {
+    "id": "8.2",
+    "severity": "Medium",
+    "remediation": "GPO: Computer Config > Admin Templates > Windows Components > AutoPlay Policies > Set the default behavior for AutoRun = Do not execute any autorun commands"
+  },
+  {
+    "id": "11.1",
+    "severity": "High",
+    "remediation": "GPO: Computer Config > Windows Settings > Security Settings > Local Policies > Security Options > User Account Control: Behavior of the elevation prompt for administrators = Prompt for consent on the secure desktop"
+  },
+  {
+    "id": "11.2",
+    "severity": "High",
+    "remediation": "GPO: Computer Config > Windows Settings > Security Settings > Local Policies > Security Options > User Account Control: Run all administrators in Admin Approval Mode = Enabled"
+  },
+  {
+    "id": "12.1",
+    "severity": "High",
+    "remediation": "Registry: HKLM\\SYSTEM\\CurrentControlSet\\Control\\Lsa\\LmCompatibilityLevel = 5 (Send NTLMv2 response only. Refuse LM & NTLM)"
+  },
+  {
+    "id": "14.1",
+    "severity": "Critical",
+    "remediation": "Ensure Windows Defender is enabled and no third-party AV is interfering. Run: Set-MpPreference -DisableRealtimeMonitoring $false"
+  },
+  {
+    "id": "14.2",
+    "severity": "Critical",
+    "remediation": "Update Defender signatures: Run Update-MpSignature or check Windows Update. Signatures should be less than 7 days old."
+  },
+  {
+    "id": "15.1",
+    "severity": "High",
+    "remediation": "Enable BitLocker: Run manage-bde -on C: -RecoveryPassword  OR  GPO: Computer Config > Admin Templates > Windows Components > BitLocker Drive Encryption > Operating System Drives > Require additional authentication at startup"
+  },
+  {
+    "id": "16.1",
+    "severity": "High",
+    "remediation": "Secure Boot must be enabled in UEFI/BIOS firmware settings. Reboot into firmware setup and enable Secure Boot."
+  },
+  {
+    "id": "17.1",
+    "severity": "Medium",
+    "remediation": "GPO: Computer Config > Admin Templates > Windows Components > Windows PowerShell > Turn on Script Block Logging = Enabled"
+  },
+  {
+    "id": "17.2",
+    "severity": "Medium",
+    "remediation": "GPO: Computer Config > Admin Templates > Windows Components > Windows PowerShell > Turn on Module Logging = Enabled. Specify modules: *"
+  },
+  {
+    "id": "17.3",
+    "severity": "Medium",
+    "remediation": "PowerShell: Set-ExecutionPolicy RemoteSigned -Force  OR  GPO: Computer Config > Admin Templates > Windows Components > Windows PowerShell > Turn on Script Execution = Allow only signed scripts"
+  },
+  {
+    "id": "18.1",
+    "severity": "High",
+    "remediation": "Deploy AppLocker or Windows Defender Application Control (WDAC). GPO: Computer Config > Windows Settings > Security Settings > Application Control Policies > AppLocker"
+  },
+  {
+    "id": "20.1",
+    "severity": "High",
+    "remediation": "GPO: Computer Config > Admin Templates > System > Credentials Delegation > Remote host allows delegation of non-exportable credentials = Enabled"
+  },
+  {
+    "id": "21.1",
+    "severity": "Medium",
+    "remediation": "GPO: Computer Config > Admin Templates > Control Panel > Personalization > Enable screen saver = Enabled, with timeout <= 900 seconds and password protection enabled"
+  },
+  {
+    "id": "23.1",
+    "severity": "Medium",
+    "remediation": "GPO: Computer Config > Admin Templates > Network > Network Connections > Prohibit use of Internet Connection Sharing = Enabled"
+  },
+  {
+    "id": "24.1",
+    "severity": "High",
+    "remediation": "GPO: Computer Config > Admin Templates > System > Exploit Protection > Use a common set of exploit protection settings. Deploy via: Set-ProcessMitigation -System -Enable DEP,SEHOP"
+  },
+  {
+    "id": "80.2",
+    "severity": "Critical",
+    "remediation": "Update the vulnerable application to the latest version immediately. Check vendor website or use application's built-in update mechanism."
+  },
+  {
+    "id": "80.3",
+    "severity": "High",
+    "remediation": "Update stale applications (>30 days since last update). Check for updates via vendor website, application settings, or package manager."
+  }
+]

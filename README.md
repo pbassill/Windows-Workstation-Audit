@@ -42,7 +42,7 @@ Validate builds against CIS Benchmarks, Cyber Essentials, and Microsoft Entra ID
 | **Entra ID / M365** | Microsoft Entra ID, Intune, WHfB, MDE, and Conditional Access |
 | **NCSC** | NCSC-aligned security recommendations |
 
-Results are displayed with colour-coded console output and saved to both a plain-text report and a CSV export for integration with existing tooling.
+Results are displayed with colour-coded console output and saved to a plain-text report, CSV export, structured JSON, and an interactive HTML report.
 
 ## Key Features
 
@@ -50,7 +50,13 @@ Results are displayed with colour-coded console output and saved to both a plain
 - **Entra ID-aware** — Cloud-managed controls (password policy, lockout, account lifecycle) are contextually adjusted to avoid false FAILs on Entra-joined devices
 - **Zero dependencies** — No Microsoft Graph, Azure AD module, or internet connection required; uses `dsregcmd`, registry, WMI/CIM, and local tooling only
 - **Vulnerability scanning** — Detects outdated desktop applications with known critical/high CVEs via the [NVD](https://nvd.nist.gov/) and [CISA KEV](https://www.cisa.gov/known-exploited-vulnerabilities-catalog) databases
-- **Executive-ready reports** — Risk ratings, framework score dashboards with progress bars, prioritised remediation lists, and per-framework breakdowns
+- **Interactive HTML report** — Self-contained HTML file with SVG charts, collapsible sections, sortable/filterable results tables, and print-to-PDF support
+- **JSON export** — Structured JSON with metadata, framework scores, section scorecard, compliance verdicts, and full results for SIEM/GRC integration
+- **Delta / trend comparison** — Compare against a previous JSON export to show resolved failures, regressions, new failures, and score changes
+- **Remediation guidance** — Failed controls include severity tags and one-line remediation actions from the companion `remediation.json`
+- **Severity-weighted scoring** — Critical checks weighted x3, High x2, Medium x1 alongside the standard unweighted score
+- **Compliance attestation** — Per-framework pass/fail verdicts against configurable thresholds (e.g. 100% for CE, 90% for CIS)
+- **Executive-ready reports** — Risk ratings, Top 5 Risks, Quick Wins, framework score dashboards with progress bars, and section-level scorecards
 - **CSV export** — Machine-readable output for SIEM, GRC platforms, and spreadsheet analysis
 - **Flexible scope** — Audit all frameworks at once or focus on a single framework with the `-Audit` parameter
 
@@ -75,7 +81,7 @@ cd win-11-build-audit
 .\audit.ps1
 ```
 
-The script produces a colour-coded console summary and writes both a `.txt` report and a `.csv` export to the user profile directory.
+The script produces a colour-coded console summary and writes four output files to the user profile directory: `.txt` report, `.csv` export, `.json` structured data, and `.html` interactive report.
 
 ## Usage
 
@@ -90,6 +96,9 @@ The script produces a colour-coded console summary and writes both a `.txt` repo
 .\audit.ps1 -Audit cis2     # CIS Level 2 checks only
 .\audit.ps1 -Audit ncsc     # NCSC alignment checks only
 .\audit.ps1 -Audit entra    # Entra ID / M365 checks only
+
+# Delta / trend comparison against a previous audit
+.\audit.ps1 -PreviousReport "C:\audits\DESKTOP-ABC_Audit_2025-01-01.json"
 ```
 
 ### Audit Scope Options
@@ -141,16 +150,44 @@ Section 80 (**Application Patch Currency**) checks installed desktop application
 | **Console** | — | Colour-coded live results (Green/Red/Yellow/Cyan) |
 | **Text report** | `<hostname>_Audit_<timestamp>.txt` | Full audit report with compliance summary |
 | **CSV export** | `<hostname>_Audit_<timestamp>.csv` | Machine-readable export for SIEM / GRC / spreadsheet |
+| **JSON export** | `<hostname>_Audit_<timestamp>.json` | Structured data with metadata, scores, results, and remediation guidance |
+| **HTML report** | `<hostname>_Audit_<timestamp>.html` | Interactive report with charts, filtering, sorting, and print-to-PDF |
 
 ### Report Sections
 
-1. **Executive Summary** — Overall risk rating (Critical / High / Moderate / Low), compliance score with visual progress bar
-2. **Framework Score Dashboard** — Side-by-side framework scores with ASCII progress bars and PASS / FAIL / WARN breakdowns
-3. **Device Context** — Hostname, join type, tenant, MDM enrolment, PRT status
-4. **Priority Remediation** — Failed controls grouped by framework, numbered for actionable triage
-5. **Warnings Summary** — Warnings grouped by framework for manual review
-6. **Per-Framework Detail** — Full PASS / FAIL / WARN listing for each framework
-7. **Sections Audited** — All 80 sections grouped into logical categories
+1. **Compliance Attestation** — Per-framework pass/fail verdicts against configurable thresholds
+2. **Executive Summary** — Overall risk rating, unweighted and severity-weighted compliance scores, Top 5 Risks, Quick Wins
+3. **Framework Score Dashboard** — Side-by-side framework scores with SVG doughnut charts and ASCII progress bars
+4. **Section Scorecard** — Pass/fail/warn rates for each of the 80 audit sections
+5. **Device Context** — Hostname, OS edition, join type, tenant, MDM, TPM, Secure Boot, BIOS/UEFI, IP addresses
+6. **Delta Comparison** — Score changes, resolved failures, regressions, and new failures vs. a previous audit (requires `-PreviousReport`)
+7. **Priority Remediation** — Failed controls grouped by framework with severity tags and one-line remediation guidance
+8. **Warnings Summary** — Warnings grouped by framework for manual review
+9. **Per-Framework Detail** — Full PASS / FAIL / WARN listing for each framework
+10. **Sections Audited** — All 80 sections grouped into logical categories
+
+### Delta / Trend Comparison
+
+Pass a previous JSON export to see what changed between audits:
+
+```powershell
+.\audit.ps1 -PreviousReport "C:\audits\previous.json"
+```
+
+The report will include:
+- **Overall score delta** with directional arrows
+- **Per-framework score changes**
+- **Resolved** items (previously failed, now passing)
+- **Regressions** (previously passing/warn, now failing)
+- **New failures** (checks not present in the previous report)
+
+### Remediation Guidance
+
+The companion `remediation.json` file provides severity ratings and one-line fix instructions for common failures. When a failed check matches an entry in the file, the text report, HTML report, and JSON export all include:
+- **Severity** — Critical, High, or Medium
+- **Remediation** — GPO path, registry key, or PowerShell command to resolve the failure
+
+Severity ratings also drive the **weighted score** (Critical ×3, High ×2, Medium ×1) shown alongside the standard unweighted score.
 
 ## Audit Categories
 
@@ -243,6 +280,19 @@ Section 80 (**Application Patch Currency**) checks installed desktop application
 </details>
 
 ## Changelog
+
+### v6.0.0 — Enhanced Reporting Suite
+
+- **Interactive HTML report** — Self-contained `.html` file with inline CSS/JS, SVG doughnut charts per framework, collapsible/expandable sections, sortable and filterable results table, and browser print-to-PDF support
+- **Structured JSON export** — Full `.json` export with metadata, framework scores, compliance verdicts, section-level scorecard, and all results with optional remediation guidance; designed for SIEM, GRC, and dashboard ingestion
+- **Delta / trend comparison** — New `-PreviousReport` parameter accepts a prior JSON export; generates a "Changes Since Last Audit" section showing resolved failures, regressions, new failures, and per-framework score deltas
+- **Remediation guidance** — New companion `remediation.json` with severity ratings and one-line fix instructions for common failures; integrated into text report, HTML report, and JSON export
+- **Severity-weighted scoring** — Critical checks weighted ×3, High ×2, Medium ×1; shown alongside the standard unweighted score in the executive summary
+- **Compliance attestation** — Per-framework pass/fail verdicts against configurable thresholds (100% CE, 90% CIS/Entra, 85% NCSC)
+- **Section scorecard** — Category-level pass/fail/warn rates for all 80 audit sections; highlights priority areas below 50%
+- **Enhanced device context** — OS edition and build, last reboot time, TPM version/status, Secure Boot state, BIOS/UEFI vendor, PowerShell/.NET versions, domain/workgroup, IP addresses
+- **Executive summary enhancements** — Top 5 Risks (sorted by severity weight), Quick Wins (easy registry/GPO fixes with remediation instructions), framework compliance threshold status
+- **Four output formats** — Text (.txt), CSV (.csv), JSON (.json), and HTML (.html) generated on every audit run
 
 ### v5.2.0 — Audit Scope Selection
 
