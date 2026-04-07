@@ -1,115 +1,161 @@
-# win-11-build-audit
+<div align="center">
 
-A PowerShell script to audit Windows 10/11 builds against CIS Level 1 & 2, Cyber Essentials (CE), Cyber Essentials Plus (CE+), and Microsoft Entra ID / M365 security controls.
+# Windows 11 Build Audit
+
+**Comprehensive security auditing for Windows 10/11 endpoints**
+
+Validate builds against CIS Benchmarks, Cyber Essentials, and Microsoft Entra ID security controls — all from a single PowerShell script.
+
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
+[![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-blue.svg)](https://docs.microsoft.com/en-us/powershell/)
+[![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-0078D6.svg)](https://www.microsoft.com/windows)
+
+</div>
+
+---
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Key Features](#key-features)
+- [Requirements](#requirements)
+- [Quick Start](#quick-start)
+- [Usage](#usage)
+- [Vulnerability Database](#vulnerability-database)
+- [Report Output](#report-output)
+- [Audit Categories](#audit-categories)
+- [Changelog](#changelog)
+- [Contributing](#contributing)
+- [Author](#author)
+- [License](#license)
 
 ## Overview
 
-This tool performs **721 individual security checks** across **79 audit categories**, covering:
+**win-11-build-audit** is a standalone PowerShell auditing tool that performs **734+ security checks** across **80 audit categories**. It evaluates Windows 10/11 endpoints against multiple industry-standard frameworks simultaneously:
 
-- **CIS Microsoft Windows Benchmark Level 1** controls
-- **CIS Microsoft Windows Benchmark Level 2** controls
-- **Cyber Essentials (CE)** baseline controls
-- **Cyber Essentials Plus (CE+)** additional controls
-- **Microsoft Entra ID** (Azure AD) join and device health
-- **Microsoft Intune / MDM** enrolment and compliance
-- **Windows Hello for Business** (WHfB)
-- **Microsoft Defender for Endpoint** (MDE)
-- **Microsoft 365 / Office** security configuration
-- **Entra ID Conditional Access** compliance
+| Framework | Description |
+|-----------|-------------|
+| **CIS Benchmark L1** | CIS Microsoft Windows 11 Enterprise v5.0.1 — Level 1 |
+| **CIS Benchmark L2** | CIS Microsoft Windows 11 Enterprise v5.0.1 — Level 2 |
+| **Cyber Essentials** | UK NCSC Cyber Essentials baseline controls |
+| **Cyber Essentials Plus** | CE+ additional technical verification controls |
+| **Entra ID / M365** | Microsoft Entra ID, Intune, WHfB, MDE, and Conditional Access |
+| **NCSC** | NCSC-aligned security recommendations |
 
-Results are displayed with colour-coded console output and saved to a plain-text report on the Desktop.
+Results are displayed with colour-coded console output and saved to both a plain-text report and a CSV export for integration with existing tooling.
 
-### Entra ID Awareness
+## Key Features
 
-The script is Entra ID-aware. When a device is detected as Entra joined, checks that are natively managed by Entra ID / Intune (e.g. password policy, lockout, account lifecycle) are contextually adjusted so that cloud-managed controls do not generate false FAILs against local policy baselines.
-
-No Microsoft Graph or Azure AD module is required — the script uses `dsregcmd`, registry, WMI/CIM, and local tooling only, so it works offline and without extra modules.
+- **Multi-framework auditing** — Assess endpoints against CIS L1, CIS L2, Cyber Essentials, CE+, Entra ID, and NCSC in a single pass
+- **Entra ID-aware** — Cloud-managed controls (password policy, lockout, account lifecycle) are contextually adjusted to avoid false FAILs on Entra-joined devices
+- **Zero dependencies** — No Microsoft Graph, Azure AD module, or internet connection required; uses `dsregcmd`, registry, WMI/CIM, and local tooling only
+- **Vulnerability scanning** — Detects outdated desktop applications with known critical/high CVEs via the [NVD](https://nvd.nist.gov/) and [CISA KEV](https://www.cisa.gov/known-exploited-vulnerabilities-catalog) databases
+- **Executive-ready reports** — Risk ratings, framework score dashboards with progress bars, prioritised remediation lists, and per-framework breakdowns
+- **CSV export** — Machine-readable output for SIEM, GRC platforms, and spreadsheet analysis
+- **Flexible scope** — Audit all frameworks at once or focus on a single framework with the `-Audit` parameter
 
 ## Requirements
 
-- Windows 10/11 (tested on 22H2+, Entra ID joined and Hybrid joined)
-- PowerShell
-- **Administrator privileges** (the script enforces this via `#Requires -RunAsAdministrator`)
+| Requirement | Detail |
+|-------------|--------|
+| **Operating System** | Windows 10 or 11 (tested on 22H2+) |
+| **Join Type** | Entra ID joined, Hybrid joined, or standalone |
+| **PowerShell** | Windows PowerShell 5.1 or later |
+| **Privileges** | Administrator (enforced via `#Requires -RunAsAdministrator`) |
+| **Dependencies** | None — fully self-contained |
+
+## Quick Start
+
+```powershell
+# 1. Clone or download the repository
+git clone https://github.com/pbassill/win-11-build-audit.git
+cd win-11-build-audit
+
+# 2. Run the audit in an elevated PowerShell session
+.\audit.ps1
+```
+
+The script produces a colour-coded console summary and writes both a `.txt` report and a `.csv` export to the user profile directory.
 
 ## Usage
 
-Run the script in an elevated PowerShell session:
-
 ```powershell
-# Run the full audit (all frameworks)
+# Full audit across all frameworks (default)
 .\audit.ps1
 .\audit.ps1 -Audit all
 
-# Run only Cyber Essentials / CE+ checks
-.\audit.ps1 -Audit ce
-
-# Run only CIS Level 1 checks
-.\audit.ps1 -Audit cis1
-
-# Run only CIS Level 2 checks
-.\audit.ps1 -Audit cis2
-
-# Run only NCSC alignment checks
-.\audit.ps1 -Audit ncsc
-
-# Run only Entra ID / M365 checks
-.\audit.ps1 -Audit entra
+# Single-framework audits
+.\audit.ps1 -Audit ce       # Cyber Essentials / CE+ checks only
+.\audit.ps1 -Audit cis1     # CIS Level 1 checks only
+.\audit.ps1 -Audit cis2     # CIS Level 2 checks only
+.\audit.ps1 -Audit ncsc     # NCSC alignment checks only
+.\audit.ps1 -Audit entra    # Entra ID / M365 checks only
 ```
 
 ### Audit Scope Options
 
-| Option | Description |
-|--------|-------------|
-| `all` | Full audit across all frameworks (default) |
-| `ce` | Cyber Essentials / CE+ checks only |
-| `cis1` | CIS Level 1 checks only |
-| `cis2` | CIS Level 2 checks only |
-| `ncsc` | NCSC alignment checks only |
+| Option  | Scope |
+|---------|-------|
+| `all`   | Full audit across all frameworks *(default)* |
+| `ce`    | Cyber Essentials / CE+ checks only |
+| `cis1`  | CIS Level 1 checks only |
+| `cis2`  | CIS Level 2 checks only |
+| `ncsc`  | NCSC alignment checks only |
 | `entra` | Entra ID / M365 checks only |
 
-> **Note:** PowerShell also accepts the shortened `-Audit` syntax (e.g. `.\audit.ps1 -Audit ce`). The `--audit` double-dash form may work in some PowerShell hosts but `-Audit` is the standard PowerShell syntax.
+> **Tip:** Running without the `-Audit` parameter is equivalent to `-Audit all`.
 
-### Updating the Vulnerability Database
+## Vulnerability Database
 
-Section 80 (Application Patch Currency) uses a companion `known-vulnerabilities.json` file to detect applications with known critical/high CVEs. Run `Update-KnownVulnerabilities.ps1` to refresh this file from the [NIST National Vulnerability Database (NVD)](https://nvd.nist.gov/) API and the [CISA Known Exploited Vulnerabilities (KEV)](https://www.cisa.gov/known-exploited-vulnerabilities-catalog) catalog:
+Section 80 (**Application Patch Currency**) checks installed desktop applications against a companion `known-vulnerabilities.json` file containing known critical and high-severity CVEs. The database is maintained via `Update-KnownVulnerabilities.ps1`, which queries:
+
+- **[NIST NVD API v2.0](https://nvd.nist.gov/)** — CVE severity, affected versions, and minimum safe versions
+- **[CISA KEV Catalog](https://www.cisa.gov/known-exploited-vulnerabilities-catalog)** — Actively exploited vulnerabilities with remediation deadlines
+
+### Updating the Database
 
 ```powershell
-# Basic usage -- queries NVD and CISA KEV at the public rate limit (5 req / 30 s)
+# Basic usage (public rate limit: 5 requests / 30 seconds)
 .\Update-KnownVulnerabilities.ps1
 
-# With an NVD API key for faster updates (50 req / 30 s)
+# With an NVD API key (50 requests / 30 seconds)
 .\Update-KnownVulnerabilities.ps1 -NvdApiKey "your-api-key"
 
 # Custom output path
 .\Update-KnownVulnerabilities.ps1 -OutputPath "C:\audit\known-vulnerabilities.json"
 
-# Skip KEV catalog lookup (offline mode)
+# Skip KEV catalog lookup (offline environments)
 .\Update-KnownVulnerabilities.ps1 -SkipKev
 ```
 
-The script merges results with any existing `known-vulnerabilities.json`, so entries are only replaced when the NVD provides a higher minimum safe version. Entries that the API cannot improve are preserved. A free NVD API key can be requested at https://nvd.nist.gov/developers/request-an-api-key.
+> A free NVD API key can be requested at [nvd.nist.gov/developers/request-an-api-key](https://nvd.nist.gov/developers/request-an-api-key).
 
-Each entry is cross-referenced against the CISA KEV catalog. Vulnerabilities that appear in the KEV catalog are flagged with `kev: true` and include the CISA remediation due date and whether the vulnerability is associated with known ransomware campaigns. During audit, KEV-flagged vulnerabilities are highlighted as **ACTIVELY EXPLOITED** for prioritised remediation.
+**Merge behaviour:** Existing entries are preserved unless the NVD provides a higher minimum safe version. KEV-flagged vulnerabilities include the CISA remediation due date and ransomware association metadata. During the audit, these are highlighted as **ACTIVELY EXPLOITED** for priority remediation.
 
-## Output
+## Report Output
 
-- **Console** — colour-coded results: **Green** (PASS), **Red** (FAIL), **Yellow** (WARN), **Cyan** (INFO / Cloud-Managed)
-- **Text report** — `OTY_Heavy_Industries_Audit_<timestamp>.txt` saved to the user profile directory, containing all results plus a compliance summary with pass/fail/warn counts, per-framework scores with visual progress bars, and an overall risk rating
-- **CSV export** — `OTY_Heavy_Industries_Audit_<timestamp>.csv` saved alongside the text report for import into spreadsheets, SIEM tools, or other analysis platforms
+### Output Formats
 
-### Report Structure
+| Format | Filename | Purpose |
+|--------|----------|---------|
+| **Console** | — | Colour-coded live results (Green/Red/Yellow/Cyan) |
+| **Text report** | `<hostname>_Audit_<timestamp>.txt` | Full audit report with compliance summary |
+| **CSV export** | `<hostname>_Audit_<timestamp>.csv` | Machine-readable export for SIEM / GRC / spreadsheet |
 
-The report is organised into clear, logical sections:
+### Report Sections
 
-1. **Executive Summary** — overall risk rating (Critical / High / Moderate / Low), compliance score with progress bar, and key metrics at a glance
-2. **Framework Score Dashboard** — side-by-side comparison of all framework scores (CIS L1, CIS L2, CE/CE+, Entra ID, NCSC) with ASCII progress bars and pass/fail/warn breakdowns
-3. **Device Context** — hostname, join type, tenant, MDM enrolment, and PRT status
-4. **Priority Remediation** — all failed controls grouped by framework, numbered and sorted for actionable prioritisation
-5. **Warnings Summary** — all warnings grouped by framework for manual review
-6. **Per-Framework Detailed Reports** — full PASS/FAIL/WARN listing for each framework (CIS L1, CIS L2, CE/CE+, Entra ID/M365, NCSC)
-7. **Sections Audited** — all 79 sections grouped into logical categories (Core Security, Entra/Cloud, CIS L2, CIS L1 Extended)
+1. **Executive Summary** — Overall risk rating (Critical / High / Moderate / Low), compliance score with visual progress bar
+2. **Framework Score Dashboard** — Side-by-side framework scores with ASCII progress bars and PASS / FAIL / WARN breakdowns
+3. **Device Context** — Hostname, join type, tenant, MDM enrolment, PRT status
+4. **Priority Remediation** — Failed controls grouped by framework, numbered for actionable triage
+5. **Warnings Summary** — Warnings grouped by framework for manual review
+6. **Per-Framework Detail** — Full PASS / FAIL / WARN listing for each framework
+7. **Sections Audited** — All 80 sections grouped into logical categories
 
 ## Audit Categories
+
+<details>
+<summary><strong>View all 80 audit categories</strong></summary>
 
 | # | Category | Frameworks |
 |---|----------|------------|
@@ -192,46 +238,60 @@ The report is organised into clear, logical sections:
 | 77 | CIS L1 — System Admin Templates | CIS L1 18.9 |
 | 78 | CIS L1 — Windows Components | CIS L1 18.10 |
 | 79 | CIS L1 — WiFi & User Templates | CIS L1 18.11/19.7 |
+| 80 | Application Patch Currency | CE+, CE5 |
+
+</details>
 
 ## Changelog
 
 ### v5.2.0 — Audit Scope Selection
 
-- **`-Audit` parameter** added to select which framework to audit: `all` (default), `ce`, `cis1`, `cis2`, `ncsc`, or `entra`
-- Checks outside the selected scope are silently skipped, producing a focused report for the chosen framework
-- Banner, executive summary, and report header display the selected audit scope
-- Fully backwards compatible — running without `-Audit` performs the full audit as before
+- **`-Audit` parameter** — Select which framework to audit: `all` (default), `ce`, `cis1`, `cis2`, `ncsc`, or `entra`
+- Checks outside the selected scope are silently skipped, producing a focused report
+- Banner, executive summary, and report header display the selected scope
+- Fully backwards compatible — running without `-Audit` performs the full audit
 
 ### v5.1.0 — Enhanced Reporting & CSV Export
 
-- **Executive Summary** with risk rating (Critical/High/Moderate/Low) and visual compliance score bar
-- **Framework Score Dashboard** with ASCII progress bars and per-framework PASS/FAIL/WARN breakdowns for all five frameworks (CIS L1, CIS L2, CE/CE+, Entra ID/M365, NCSC)
-- **Priority Remediation** section groups all failures by framework with numbered items for actionable triage
-- **Warnings Summary** groups all warnings by framework for efficient manual review
-- **Entra ID / M365** now included in per-framework detailed reports (previously missing)
-- **CSV export** generated alongside the text report for integration with spreadsheets, SIEM, or analysis tools
+- **Executive Summary** with risk rating and visual compliance score bar
+- **Framework Score Dashboard** with ASCII progress bars and per-framework PASS/FAIL/WARN breakdowns
+- **Priority Remediation** section with numbered items grouped by framework
+- **Warnings Summary** grouped by framework for manual review
+- **CSV export** alongside the text report for SIEM and spreadsheet integration
 - **Audit duration** tracked and displayed in the report footer
-- **Sections Audited** listing reorganised into logical categories (Core Security, Entra/Cloud, CIS L2, CIS L1 Extended)
-- Passed items in per-framework reports now show check name only (detail omitted for readability)
-- Report helper functions added (`Write-ReportLine`, `Write-Divider`, `Get-ProgressBar`, `Get-RiskRating`) for consistent formatting
+- Report helper functions (`Write-ReportLine`, `Write-Divider`, `Get-ProgressBar`, `Get-RiskRating`)
 
 ### v5.0.0 — CIS v5.0.1 L1 Full Coverage
 
-- **134 new CIS L1 checks** across 9 new sections (71–79), mapped directly from the CIS Microsoft Windows 11 Enterprise v5.0.1 Level 1 benchmark audit file
+- **134 new CIS L1 checks** across 9 new sections (71-79), mapped from the CIS Microsoft Windows 11 Enterprise v5.0.1 Level 1 benchmark
 - Total checks increased from 587 to **721** across **79 audit categories**
-- New sections cover: Account Lockout (1.2.3), additional User Rights (2.2.x), Security Options (2.3.x), Windows Firewall Policy logging (9.x), Audit Policy subcategories (17.x), Personalization (18.1.x), MSS/Network/SMB hardening (18.5–18.6), Printer security (18.7.x), System templates (18.9.x), Windows Components (18.10.x), WiFi (18.11.x), and User templates (19.7.x)
-- All checks mapped to specific CIS benchmark control IDs (e.g. `CIS 18.10.42.4.1`, `CIS 2.3.17.1`)
+- All checks mapped to specific CIS benchmark control IDs
 
-### Previous Changes
+<details>
+<summary><strong>Previous changes</strong></summary>
 
-- **Section 15 (BitLocker)**: BitLocker Key Backed Up to Entra/AD check now always returns PASS on Entra-joined devices with BitLocker enabled, since key escrow is managed by Entra ID.
-- **Section 22 (Unnecessary Windows Features)**: Features that return an empty or null state (i.e. not present / removed) are now correctly treated as PASS instead of WARN.
-- **Section 26A (Account Separation)**: Fixed a PowerShell compatibility error where `try` was used as a sub-expression inside `Where-Object`, causing a `CommandNotFoundException` on some systems.
-- **Section 26A (Entra Admins)**: Entra/AAD admin accounts found in the local Administrators group now report as INFO instead of WARN, since their presence is expected on Entra-joined devices.
+- **Section 15 (BitLocker):** Key escrow check now returns PASS on Entra-joined devices with BitLocker enabled
+- **Section 22 (Unnecessary Features):** Null/empty feature state correctly treated as PASS
+- **Section 26A (Account Separation):** Fixed `CommandNotFoundException` in `Where-Object` sub-expression
+- **Section 26A (Entra Admins):** Entra admin accounts in local Administrators group report as INFO
+
+</details>
+
+## Contributing
+
+Contributions are welcome! If you would like to improve this tool:
+
+1. **Fork** the repository
+2. **Create a feature branch** (`git checkout -b feature/my-improvement`)
+3. **Commit your changes** (`git commit -m "Add my improvement"`)
+4. **Push to your branch** (`git push origin feature/my-improvement`)
+5. **Open a Pull Request**
+
+Please ensure PowerShell scripts use **ASCII-only characters** (no em dashes, smart quotes, or other multi-byte characters) for compatibility with Windows PowerShell 5.1.
 
 ## Author
 
-**Peter Bassill** — OTY Heavy Industries
+**Peter Bassill** — [OTY Heavy Industries](https://github.com/pbassill)
 
 ## License
 
