@@ -5354,7 +5354,7 @@ if ($Script:PreviousData) {
 
     if ($null -ne $prevScore) {
         $delta = $score - $prevScore
-        $arrow = if ($delta -gt 0) { "+" } elseif ($delta -lt 0) { "" } else { "" }
+        $arrow = if ($delta -gt 0) { "+" } else { "" }
         $deltaColor = if ($delta -gt 0) { "Green" } elseif ($delta -lt 0) { "Red" } else { "Cyan" }
         $deltaLine = "  Overall Score: $prevScore% -> $score%  (${arrow}${delta}%)"
         Write-Host $deltaLine -ForegroundColor $deltaColor
@@ -5374,7 +5374,7 @@ if ($Script:PreviousData) {
             }
             if ($null -ne $prevFwScore) {
                 $d = $fw.Score - $prevFwScore
-                $arr = if ($d -gt 0) { "+" } elseif ($d -lt 0) { "" } else { "" }
+                $arr = if ($d -gt 0) { "+" } else { "" }
                 $dColor = if ($d -gt 0) { "Green" } elseif ($d -lt 0) { "Red" } else { "Cyan" }
                 $fwLine = "    $($fw.Label): $prevFwScore% -> $($fw.Score)%  (${arr}${d}%)"
                 Write-Host $fwLine -ForegroundColor $dColor
@@ -5915,7 +5915,7 @@ if ($Script:PreviousData) {
     $deltaHtml = "<div class='section' id='delta'><h2 onclick=`"toggleSection('delta-body')`">Changes Since Last Audit</h2><div id='delta-body'>"
     if ($null -ne $prevScore) {
         $delta = $score - $prevScore
-        $arrow = if ($delta -gt 0) { "+" } elseif ($delta -lt 0) { "" } else { "" }
+        $arrow = if ($delta -gt 0) { "+" } else { "" }
         $dClass = if ($delta -gt 0) { "badge-pass" } elseif ($delta -lt 0) { "badge-fail" } else { "badge-info" }
         $deltaHtml += "<p>Overall Score: <strong>$prevScore%</strong> -> <strong>$score%</strong> <span class='$dClass'>${arrow}${delta}%</span></p>"
     }
@@ -6145,7 +6145,9 @@ $htmlParts.Add('</div>')
 
 # JavaScript
 $htmlParts.Add('<script>')
-$htmlParts.Add("var fwData=$fwChartJson;")
+# Sanitize JSON for embedding in HTML script tag (defense in depth)
+$safeFwChartJson = $fwChartJson -replace '<', '\u003c' -replace '>', '\u003e' -replace '&', '\u0026'
+$htmlParts.Add("var fwData=$safeFwChartJson;")
 $jsCode = @'
 function toggleSection(id){var el=document.getElementById(id);if(!el)return;var h=el.previousElementSibling;if(el.classList.contains('open')){el.classList.remove('open');if(h)h.classList.remove('open')}else{el.classList.add('open');if(h)h.classList.add('open')}}
 function getBarColor(s){return s>=90?'var(--pass)':s>=75?'var(--warn)':'var(--fail)'}
