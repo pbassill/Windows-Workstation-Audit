@@ -62,10 +62,10 @@ param(
 $ScriptVersion = "6.0.0"
 $Timestamp     = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
 $MachineName   = $env:COMPUTERNAME
-$ReportPath    = "$env:USERPROFILE\${MachineName}_Audit_$Timestamp.txt"
-$CsvPath       = "$env:USERPROFILE\${MachineName}_Audit_$Timestamp.csv"
-$JsonPath      = "$env:USERPROFILE\${MachineName}_Audit_$Timestamp.json"
-$HtmlPath      = "$env:USERPROFILE\${MachineName}_Audit_$Timestamp.html"
+$ReportPath    = "$PSScriptRoot\${MachineName}_Audit_$Timestamp.txt"
+$CsvPath       = "$PSScriptRoot\${MachineName}_Audit_$Timestamp.csv"
+$JsonPath      = "$PSScriptRoot\${MachineName}_Audit_$Timestamp.json"
+$HtmlPath      = "$PSScriptRoot\${MachineName}_Audit_$Timestamp.html"
 $SecCfg        = "$env:TEMP\oty_secedit_$Timestamp.cfg"
 $Results       = [System.Collections.Generic.List[PSCustomObject]]::new()
 $AuditStartTime = Get-Date
