@@ -426,6 +426,9 @@ function Find-BestVulnerability {
             }
         } catch {
             # Skip CVEs with unexpected structure rather than aborting the run
+            $cveId = if ($vuln -and $vuln.PSObject.Properties['cve'] -and
+                         $vuln.cve.PSObject.Properties['id']) { $vuln.cve.id } else { 'unknown' }
+            Write-Verbose "  Skipping $cveId -- $($_.Exception.Message)"
             continue
         }
     }
