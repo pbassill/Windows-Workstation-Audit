@@ -20,12 +20,33 @@
     lockout, account lifecycle) are contextually adjusted so that cloud-managed
     controls do not generate false FAILs against local policy baselines.
 
+.PARAMETER Audit
+    Selects which audit scope to run. Valid values:
+      all   - Full audit across all frameworks (default)
+      ce    - Cyber Essentials / CE+ checks only
+      cis1  - CIS Level 1 checks only
+      cis2  - CIS Level 2 checks only
+      ncsc  - NCSC alignment checks only
+      entra - Entra ID / M365 checks only
+
+.EXAMPLE
+    .\audit.ps1 --audit all
+    .\audit.ps1 --audit ce
+    .\audit.ps1 --audit cis1
+    .\audit.ps1 --audit cis2
+    .\audit.ps1 --audit ncsc
+    .\audit.ps1 --audit entra
+
 .NOTES
     Must be run as Administrator.
     Tested on Windows 10/11 22H2+, Entra ID joined and Hybrid joined.
     No Microsoft Graph or Azure AD module required - uses dsregcmd, registry,
     WMI/CIM, and local tooling only so it works offline and without extra modules.
 #>
+param(
+    [ValidateSet("all","ce","cis1","cis2","ncsc","entra")]
+    [string]$Audit = "all"
+)
 
 # ============================================================
 #  INITIALISATION
@@ -37,6 +58,27 @@ $CsvPath       = "$env:USERPROFILE\OTY_Heavy_Industries_Audit_$Timestamp.csv"
 $SecCfg        = "$env:TEMP\oty_secedit_$Timestamp.cfg"
 $Results       = [System.Collections.Generic.List[PSCustomObject]]::new()
 $AuditStartTime = Get-Date
+
+# ---- Audit scope filter ----
+# Maps the -Audit parameter to the set of Framework values to include.
+# "all" means no filtering; every framework is included.
+$Script:AuditScope = $Audit.ToLower()
+$Script:FrameworkFilter = switch ($Script:AuditScope) {
+    "ce"    { @("CE+")            }
+    "cis1"  { @("CIS")            }
+    "cis2"  { @("CIS-L2")         }
+    "ncsc"  { @("NCSC")           }
+    "entra" { @("EntraID")        }
+    default { @()                 }   # empty = include everything
+}
+$Script:AuditLabel = switch ($Script:AuditScope) {
+    "ce"    { "Cyber Essentials / CE+" }
+    "cis1"  { "CIS Level 1"           }
+    "cis2"  { "CIS Level 2"           }
+    "ncsc"  { "NCSC Alignment"        }
+    "entra" { "Entra ID / M365"       }
+    default { "Full Audit (all frameworks)" }
+}
 
 # Entra ID context flags - populated in Section 27, referenced throughout
 $Script:EntraJoined      = $false
@@ -63,6 +105,7 @@ function Write-Banner {
         "  CIS Level 1 & 2  |  Cyber Essentials  |  Cyber Essentials Plus",
         "  Microsoft Entra ID  |  Microsoft 365  |  Intune / MDM  |  NCSC",
         "  Version $ScriptVersion",
+        "  Audit Scope  : $($Script:AuditLabel)",
         "========================================================================",
         "  Hostname     : $env:COMPUTERNAME",
         "  User         : $env:USERNAME",
@@ -93,6 +136,9 @@ function Add-Result {
         [string]$Detail    = "",
         [string]$Framework = "CIS"
     )
+    # Skip checks outside the selected audit scope
+    if ($Script:FrameworkFilter.Count -gt 0 -and $Framework -notin $Script:FrameworkFilter) { return }
+
     $Results.Add([PSCustomObject]@{
         ID          = $ID
         Description = $Description
@@ -4718,6 +4764,7 @@ $execLines = @(
     "  ========================================================================",
     "  OTY HEAVY INDUSTRIES - AUDIT REPORT",
     "  Version $ScriptVersion  |  $(Get-Date -Format 'dd MMM yyyy HH:mm') UTC",
+    "  Scope: $($Script:AuditLabel)",
     "  ========================================================================"
 )
 foreach ($l in $execLines) { Write-ReportLine $l }
