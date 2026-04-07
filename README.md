@@ -71,10 +71,10 @@ Run the script in an elevated PowerShell session:
 
 ### Updating the Vulnerability Database
 
-Section 80 (Application Patch Currency) uses a companion `known-vulnerabilities.json` file to detect applications with known critical/high CVEs. Run `Update-KnownVulnerabilities.ps1` to refresh this file from the [NIST National Vulnerability Database (NVD)](https://nvd.nist.gov/) API:
+Section 80 (Application Patch Currency) uses a companion `known-vulnerabilities.json` file to detect applications with known critical/high CVEs. Run `Update-KnownVulnerabilities.ps1` to refresh this file from the [NIST National Vulnerability Database (NVD)](https://nvd.nist.gov/) API and the [CISA Known Exploited Vulnerabilities (KEV)](https://www.cisa.gov/known-exploited-vulnerabilities-catalog) catalog:
 
 ```powershell
-# Basic usage — queries NVD at the public rate limit (5 req / 30 s)
+# Basic usage -- queries NVD and CISA KEV at the public rate limit (5 req / 30 s)
 .\Update-KnownVulnerabilities.ps1
 
 # With an NVD API key for faster updates (50 req / 30 s)
@@ -82,9 +82,14 @@ Section 80 (Application Patch Currency) uses a companion `known-vulnerabilities.
 
 # Custom output path
 .\Update-KnownVulnerabilities.ps1 -OutputPath "C:\audit\known-vulnerabilities.json"
+
+# Skip KEV catalog lookup (offline mode)
+.\Update-KnownVulnerabilities.ps1 -SkipKev
 ```
 
 The script merges results with any existing `known-vulnerabilities.json`, so entries are only replaced when the NVD provides a higher minimum safe version. Entries that the API cannot improve are preserved. A free NVD API key can be requested at https://nvd.nist.gov/developers/request-an-api-key.
+
+Each entry is cross-referenced against the CISA KEV catalog. Vulnerabilities that appear in the KEV catalog are flagged with `kev: true` and include the CISA remediation due date and whether the vulnerability is associated with known ransomware campaigns. During audit, KEV-flagged vulnerabilities are highlighted as **ACTIVELY EXPLOITED** for prioritised remediation.
 
 ## Output
 
