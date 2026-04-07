@@ -69,6 +69,23 @@ Run the script in an elevated PowerShell session:
 
 > **Note:** PowerShell also accepts the shortened `-Audit` syntax (e.g. `.\audit.ps1 -Audit ce`). The `--audit` double-dash form may work in some PowerShell hosts but `-Audit` is the standard PowerShell syntax.
 
+### Updating the Vulnerability Database
+
+Section 80 (Application Patch Currency) uses a companion `known-vulnerabilities.json` file to detect applications with known critical/high CVEs. Run `Update-KnownVulnerabilities.ps1` to refresh this file from the [NIST National Vulnerability Database (NVD)](https://nvd.nist.gov/) API:
+
+```powershell
+# Basic usage — queries NVD at the public rate limit (5 req / 30 s)
+.\Update-KnownVulnerabilities.ps1
+
+# With an NVD API key for faster updates (50 req / 30 s)
+.\Update-KnownVulnerabilities.ps1 -NvdApiKey "your-api-key"
+
+# Custom output path
+.\Update-KnownVulnerabilities.ps1 -OutputPath "C:\audit\known-vulnerabilities.json"
+```
+
+The script merges results with any existing `known-vulnerabilities.json`, so entries are only replaced when the NVD provides a higher minimum safe version. Entries that the API cannot improve are preserved. A free NVD API key can be requested at https://nvd.nist.gov/developers/request-an-api-key.
+
 ## Output
 
 - **Console** — colour-coded results: **Green** (PASS), **Red** (FAIL), **Yellow** (WARN), **Cyan** (INFO / Cloud-Managed)
