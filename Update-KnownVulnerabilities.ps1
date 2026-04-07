@@ -660,6 +660,151 @@ $TrackedApps = @(
         keyword          = "veracrypt"
         cpe_patterns     = @("idrix:veracrypt")
     }
+    # ---- v7.0 additions: enterprise, runtimes, collaboration, dev tools ----
+    @{
+        app              = "Cisco AnyConnect"
+        registry_pattern = "Cisco AnyConnect"
+        keyword          = "cisco anyconnect"
+        cpe_patterns     = @("cisco:anyconnect_secure_mobility_client")
+    }
+    @{
+        app              = "Citrix Workspace"
+        registry_pattern = "Citrix Workspace"
+        keyword          = "citrix workspace"
+        cpe_patterns     = @("citrix:workspace")
+    }
+    @{
+        app              = "Palo Alto GlobalProtect"
+        registry_pattern = "GlobalProtect"
+        keyword          = "globalprotect"
+        cpe_patterns     = @("paloaltonetworks:globalprotect")
+    }
+    @{
+        app              = "Zscaler Client Connector"
+        registry_pattern = "Zscaler"
+        keyword          = "zscaler client connector"
+        cpe_patterns     = @("zscaler:client_connector")
+    }
+    @{
+        app              = "Sublime Text"
+        registry_pattern = "Sublime Text"
+        keyword          = "sublime text"
+        cpe_patterns     = @("sublimetext:sublime_text")
+    }
+    @{
+        app              = "GitHub Desktop"
+        registry_pattern = "GitHub Desktop"
+        keyword          = "github desktop"
+        cpe_patterns     = @("github:desktop")
+    }
+    @{
+        app              = "JetBrains IntelliJ IDEA"
+        registry_pattern = "IntelliJ IDEA"
+        keyword          = "intellij idea"
+        cpe_patterns     = @("jetbrains:intellij_idea")
+    }
+    @{
+        app              = "JetBrains PyCharm"
+        registry_pattern = "PyCharm"
+        keyword          = "pycharm"
+        cpe_patterns     = @("jetbrains:pycharm")
+    }
+    @{
+        app              = "JetBrains WebStorm"
+        registry_pattern = "WebStorm"
+        keyword          = "webstorm"
+        cpe_patterns     = @("jetbrains:webstorm")
+    }
+    @{
+        app              = "JetBrains Rider"
+        registry_pattern = "JetBrains Rider"
+        keyword          = "jetbrains rider"
+        cpe_patterns     = @("jetbrains:rider")
+    }
+    @{
+        app              = "JetBrains GoLand"
+        registry_pattern = "GoLand"
+        keyword          = "jetbrains goland"
+        cpe_patterns     = @("jetbrains:goland")
+    }
+    @{
+        app              = "Ruby"
+        registry_pattern = "Ruby"
+        keyword          = "ruby programming language"
+        cpe_patterns     = @("ruby-lang:ruby")
+    }
+    @{
+        app              = "PHP"
+        registry_pattern = "PHP"
+        keyword          = "php"
+        cpe_patterns     = @("php:php")
+    }
+    @{
+        app              = "WinMerge"
+        registry_pattern = "WinMerge"
+        keyword          = "winmerge"
+        cpe_patterns     = @("winmerge:winmerge")
+    }
+    @{
+        app              = "Beyond Compare"
+        registry_pattern = "Beyond Compare"
+        keyword          = "beyond compare"
+        cpe_patterns     = @("scootersoftware:beyond_compare")
+    }
+    @{
+        app              = "Snagit"
+        registry_pattern = "Snagit"
+        keyword          = "techsmith snagit"
+        cpe_patterns     = @("techsmith:snagit")
+    }
+    @{
+        app              = "Microsoft Teams"
+        registry_pattern = "Microsoft Teams"
+        keyword          = "microsoft teams"
+        cpe_patterns     = @("microsoft:teams")
+    }
+    @{
+        app              = "Microsoft OneDrive"
+        registry_pattern = "Microsoft OneDrive"
+        keyword          = "microsoft onedrive"
+        cpe_patterns     = @("microsoft:onedrive")
+    }
+    @{
+        app              = "Obsidian"
+        registry_pattern = "Obsidian"
+        keyword          = "obsidian md"
+        cpe_patterns     = @("obsidian:obsidian")
+    }
+    @{
+        app              = "1Password"
+        registry_pattern = "1Password"
+        keyword          = "1password"
+        cpe_patterns     = @("1password:1password")
+    }
+    @{
+        app              = "NordVPN"
+        registry_pattern = "NordVPN"
+        keyword          = "nordvpn"
+        cpe_patterns     = @("nordvpn:nordvpn", "nordsecurity:nordvpn")
+    }
+    @{
+        app              = "ProtonVPN"
+        registry_pattern = "ProtonVPN"
+        keyword          = "protonvpn"
+        cpe_patterns     = @("protonvpn:protonvpn", "proton:protonvpn")
+    }
+    @{
+        app              = "Discord"
+        registry_pattern = "Discord"
+        keyword          = "discord"
+        cpe_patterns     = @("discord:discord")
+    }
+    @{
+        app              = "Postman"
+        registry_pattern = "Postman"
+        keyword          = "postman"
+        cpe_patterns     = @("postman:postman")
+    }
 )
 
 # ============================================================
