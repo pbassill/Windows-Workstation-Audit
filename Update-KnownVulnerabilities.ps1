@@ -73,7 +73,7 @@ $RequestDelaySec = if ($NvdApiKey) { 1 } else { 7 }
 # ============================================================
 # keyword      : search term sent to NVD keywordSearch parameter
 # cpe_patterns : "vendor:product" strings matched against CPE criteria in
-#                returned CVEs — multiple alternatives are supported
+#                returned CVEs -- multiple alternatives are supported
 $TrackedApps = @(
     @{
         app              = "Google Chrome"
@@ -420,7 +420,7 @@ if (Test-Path $OutputPath) {
         Write-Host "Loaded $($existing.Count) existing entries for merge/fallback." -ForegroundColor DarkGray
         Write-Host ""
     } catch {
-        Write-Warning "Could not parse existing file — starting fresh: $_"
+        Write-Warning "Could not parse existing file -- starting fresh: $_"
     }
 }
 
@@ -479,7 +479,7 @@ for ($i = 0; $i -lt $TrackedApps.Count; $i++) {
             Write-Host "kept existing ($($existingEntry.cve) < $($existingEntry.vulnerable_below))" -ForegroundColor DarkGray
         }
     } elseif ($existingEntry) {
-        # No NVD match — preserve the existing entry
+        # No NVD match -- preserve the existing entry
         $results.Add([ordered]@{
             app              = $existingEntry.app
             registry_pattern = $existingEntry.registry_pattern
@@ -489,7 +489,7 @@ for ($i = 0; $i -lt $TrackedApps.Count; $i++) {
             updated          = $existingEntry.updated
         })
         $cKept++
-        Write-Host "no NVD match — kept existing ($($existingEntry.cve))" -ForegroundColor DarkGray
+        Write-Host "no NVD match -- kept existing ($($existingEntry.cve))" -ForegroundColor DarkGray
     } else {
         $cMissing++
         Write-Host "no data found" -ForegroundColor Red
@@ -519,7 +519,7 @@ Set-Content -Path $OutputPath -Value $jsonOutput -Encoding UTF8
 # ---- Validation: re-read and parse to confirm valid JSON ----
 try {
     $check = Get-Content $OutputPath -Raw | ConvertFrom-Json
-    $validMsg = "Output validated — $($check.Count) entries, valid JSON."
+    $validMsg = "Output validated -- $($check.Count) entries, valid JSON."
 } catch {
     $validMsg = "WARNING: Output file failed JSON validation: $_"
 }
