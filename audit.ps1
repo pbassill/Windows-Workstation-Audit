@@ -5564,7 +5564,7 @@ if ($Script:EntraJoined -or $Script:HybridJoined) {
 $recoveryPart = $null
 try {
     $recoveryPart = Get-CimInstance Win32_Volume -ErrorAction SilentlyContinue |
-        Where-Object { $_.Label -match "Recovery" -or $_.DriveType -eq 3 -and $_.Capacity -lt 2GB -and $_.Capacity -gt 100MB }
+        Where-Object { ($_.Label -match "Recovery") -or ($_.DriveType -eq 3 -and $_.Capacity -lt 2GB -and $_.Capacity -gt 100MB) }
 } catch { }
 $s = if ($recoveryPart) { "PASS" } else { "WARN" }
 Add-Result "88.5" "Recovery Partition Present" $s "$(if ($recoveryPart) {'Recovery partition detected'} else {'No recovery partition found - recovery may require external media'})" "CE+"
