@@ -4,7 +4,7 @@
 
 **Comprehensive security auditing for Windows 10/11 endpoints**
 
-Validate builds against CIS Benchmarks, Cyber Essentials, and Microsoft Entra ID security controls — all from a single PowerShell script.
+Validate builds against CIS Benchmarks, Cyber Essentials, NIST 800-53, ISO 27001, PCI-DSS, DISA STIG, and Microsoft Entra ID security controls — all from a single PowerShell script.
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-blue.svg)](https://docs.microsoft.com/en-us/powershell/)
@@ -21,6 +21,9 @@ Validate builds against CIS Benchmarks, Cyber Essentials, and Microsoft Entra ID
 - [Requirements](#requirements)
 - [Quick Start](#quick-start)
 - [Usage](#usage)
+- [Custom Checks](#custom-checks)
+- [Framework Mappings](#framework-mappings)
+- [Fleet Auditing](#fleet-auditing)
 - [Vulnerability Database](#vulnerability-database)
 - [Report Output](#report-output)
 - [Audit Categories](#audit-categories)
@@ -31,7 +34,7 @@ Validate builds against CIS Benchmarks, Cyber Essentials, and Microsoft Entra ID
 
 ## Overview
 
-**win-11-build-audit** is a standalone PowerShell auditing tool that performs **734+ security checks** across **80 audit categories**. It evaluates Windows 10/11 endpoints against multiple industry-standard frameworks simultaneously:
+**win-11-build-audit** is a standalone PowerShell auditing tool that performs **800+ security checks** across **88 audit categories**. It evaluates Windows 10/11 endpoints against multiple industry-standard frameworks simultaneously:
 
 | Framework | Description |
 |-----------|-------------|
@@ -41,23 +44,39 @@ Validate builds against CIS Benchmarks, Cyber Essentials, and Microsoft Entra ID
 | **Cyber Essentials Plus** | CE+ additional technical verification controls |
 | **Entra ID / M365** | Microsoft Entra ID, Intune, WHfB, MDE, and Conditional Access |
 | **NCSC** | NCSC-aligned security recommendations |
+| **NIST SP 800-53** | Cross-referenced via framework-mappings.json |
+| **ISO 27001:2022** | Cross-referenced via framework-mappings.json |
+| **PCI-DSS v4.0** | Cross-referenced via framework-mappings.json |
+| **DISA STIG** | Cross-referenced via framework-mappings.json |
 
-Results are displayed with colour-coded console output and saved to a plain-text report, CSV export, structured JSON, and an interactive HTML report.
+Results are displayed with colour-coded console output and saved to a plain-text report, CSV export, structured JSON, interactive HTML report, and CycloneDX SBOM.
 
 ## Key Features
 
 - **Multi-framework auditing** — Assess endpoints against CIS L1, CIS L2, Cyber Essentials, CE+, Entra ID, and NCSC in a single pass
+- **Cross-framework compliance mappings** — Map checks to NIST 800-53, ISO 27001, PCI-DSS, and DISA STIG via `framework-mappings.json`
+- **Custom organisation checks** — Define your own audit rules in `custom-checks.json` without modifying the script
 - **Entra ID-aware** — Cloud-managed controls (password policy, lockout, account lifecycle) are contextually adjusted to avoid false FAILs on Entra-joined devices
 - **Zero dependencies** — No Microsoft Graph, Azure AD module, or internet connection required; uses `dsregcmd`, registry, WMI/CIM, and local tooling only
 - **Vulnerability scanning** — Detects outdated desktop applications with known critical/high CVEs via the [NVD](https://nvd.nist.gov/) and [CISA KEV](https://www.cisa.gov/known-exploited-vulnerabilities-catalog) databases
+- **Browser policy auditing** — Chrome, Firefox, and Edge enterprise policy validation
+- **Privilege escalation detection** — Unquoted service paths, writable SYSTEM executables, AlwaysInstallElevated, world-writable PATH directories
+- **Certificate store audit** — Expired, self-signed, weak-algorithm, and suspicious root CA detection
+- **Driver & firmware security** — Vulnerable driver blocklist, HVCI, unsigned driver detection
+- **Network security posture** — DNS-over-HTTPS, SMB signing, LLMNR/NetBIOS/mDNS, VPN client detection
+- **Backup & recovery readiness** — Volume Shadow Copy, System Restore, OneDrive KFM, recovery partition checks
+- **SBOM export** — CycloneDX 1.5 JSON Software Bill of Materials for supply-chain compliance
+- **Fleet auditing** — `Invoke-FleetAudit.ps1` runs audits across multiple hosts via PowerShell Remoting with fleet-level dashboards
+- **Scheduled audit with drift detection** — `-Monitor` mode registers a Windows Scheduled Task with automatic regression alerts via Windows Event Log
+- **Remediation automation** — `-Remediate` mode with dry-run and apply options for auto-remediable failures
 - **Interactive HTML report** — Self-contained HTML file with SVG charts, collapsible sections, sortable/filterable results tables, and print-to-PDF support
-- **JSON export** — Structured JSON with metadata, framework scores, section scorecard, compliance verdicts, and full results for SIEM/GRC integration
+- **JSON export** — Structured JSON with metadata, framework scores, section scorecard, compliance verdicts, compliance mappings, and full results for SIEM/GRC integration
 - **Delta / trend comparison** — Compare against a previous JSON export to show resolved failures, regressions, new failures, and score changes
 - **Remediation guidance** — Failed controls include severity tags and one-line remediation actions from the companion `remediation.json`
 - **Severity-weighted scoring** — Critical checks weighted x3, High x2, Medium x1 alongside the standard unweighted score
 - **Compliance attestation** — Per-framework pass/fail verdicts against configurable thresholds (e.g. 100% for CE, 90% for CIS)
 - **Executive-ready reports** — Risk ratings, Top 5 Risks, Quick Wins, framework score dashboards with progress bars, and section-level scorecards
-- **CSV export** — Machine-readable output for SIEM, GRC platforms, and spreadsheet analysis
+- **CSV export** — Machine-readable output with compliance mapping columns for SIEM, GRC platforms, and spreadsheet analysis
 - **Flexible scope** — Audit all frameworks at once or focus on a single framework with the `-Audit` parameter
 
 ## Requirements
@@ -99,6 +118,16 @@ The script produces a colour-coded console summary and writes four output files 
 
 # Delta / trend comparison against a previous audit
 .\audit.ps1 -PreviousReport "C:\audits\DESKTOP-ABC_Audit_2025-01-01.json"
+
+# Schedule recurring audits with drift detection
+.\audit.ps1 -Monitor                           # Daily at 06:00
+.\audit.ps1 -Monitor -MonitorSchedule Weekly   # Weekly on Mondays at 06:00
+
+# Remediation mode
+.\audit.ps1 -Remediate                                              # Dry-run: show what would change
+.\audit.ps1 -Remediate -Confirm                                     # Apply all remediable fixes
+.\audit.ps1 -Remediate -Confirm -RemediateMinSeverity High          # Only fix High and Critical
+.\audit.ps1 -Remediate -Confirm -RemediateMinSeverity Critical      # Only fix Critical
 ```
 
 ### Audit Scope Options
@@ -113,6 +142,65 @@ The script produces a colour-coded console summary and writes four output files 
 | `entra` | Entra ID / M365 checks only |
 
 > **Tip:** Running without the `-Audit` parameter is equivalent to `-Audit all`.
+
+## Custom Checks
+
+Define organisation-specific audit rules in `custom-checks.json` without modifying `audit.ps1`. The script loads this file automatically at runtime and evaluates each rule as Section 81.
+
+Supported check types:
+- **registry** — Validate registry values with operators: `eq`, `ne`, `ge`, `le`, `gt`, `lt`, `exists`, `not_exists`
+- **service** — Verify Windows service status and startup type
+- **file_exists** — Confirm a file or directory is present
+- **file_absent** — Confirm a file or directory does not exist
+
+Example entry:
+
+```json
+{
+    "id": "C.1",
+    "description": "Corporate VPN service must be running",
+    "type": "service",
+    "framework": "Custom",
+    "severity": "High",
+    "service_name": "PanGPS",
+    "expected_status": "Running",
+    "expected_startup": "Automatic",
+    "remediation": "Install and enable the GlobalProtect VPN client"
+}
+```
+
+## Framework Mappings
+
+The companion `framework-mappings.json` file maps existing audit check IDs to controls in additional compliance standards:
+
+| Standard | Example Control |
+|----------|----------------|
+| NIST SP 800-53 Rev 5 | IA-5(1), AC-7, CM-7, SC-7, AU-3 |
+| ISO 27001:2022 | A.5.17, A.8.5, A.8.20, A.8.24 |
+| PCI-DSS v4.0 | 8.3.4, 1.2.1, 6.3.3, 10.2.1 |
+| DISA STIG | V-253265, V-253270, V-253290 |
+
+These mappings appear in the CSV export (ComplianceMappings column) and JSON export (compliance_mappings object per result), enabling compliance evidence generation for any mapped standard.
+
+## Fleet Auditing
+
+The companion `Invoke-FleetAudit.ps1` script runs audits across multiple Windows workstations via PowerShell Remoting:
+
+```powershell
+# Audit a list of hosts
+.\Invoke-FleetAudit.ps1 -ComputerName "PC01","PC02","PC03"
+
+# Audit hosts from a file
+.\Invoke-FleetAudit.ps1 -ComputerListFile ".\hosts.txt"
+
+# With credentials and throttling
+.\Invoke-FleetAudit.ps1 -ComputerName "PC01","PC02" -Credential (Get-Credential) -ThrottleLimit 10
+```
+
+The fleet audit produces:
+- Individual JSON results per host
+- Fleet summary JSON with aggregate statistics
+- Fleet HTML dashboard with per-host scores, most common failures, and compliance rates
 
 ## Vulnerability Database
 
@@ -147,24 +235,25 @@ Section 80 (**Application Patch Currency**) checks installed desktop application
 
 | Format | Filename | Purpose |
 |--------|----------|---------|
-| **Console** | — | Colour-coded live results (Green/Red/Yellow/Cyan) |
+| **Console** | -- | Colour-coded live results (Green/Red/Yellow/Cyan) |
 | **Text report** | `<hostname>_Audit_<timestamp>.txt` | Full audit report with compliance summary |
-| **CSV export** | `<hostname>_Audit_<timestamp>.csv` | Machine-readable export for SIEM / GRC / spreadsheet |
-| **JSON export** | `<hostname>_Audit_<timestamp>.json` | Structured data with metadata, scores, results, and remediation guidance |
+| **CSV export** | `<hostname>_Audit_<timestamp>.csv` | Machine-readable export with compliance mappings for SIEM / GRC |
+| **JSON export** | `<hostname>_Audit_<timestamp>.json` | Structured data with metadata, scores, results, mappings, and remediation |
 | **HTML report** | `<hostname>_Audit_<timestamp>.html` | Interactive report with charts, filtering, sorting, and print-to-PDF |
+| **SBOM** | `<hostname>_SBOM_<timestamp>.json` | CycloneDX 1.5 Software Bill of Materials |
 
 ### Report Sections
 
 1. **Compliance Attestation** — Per-framework pass/fail verdicts against configurable thresholds
 2. **Executive Summary** — Overall risk rating, unweighted and severity-weighted compliance scores, Top 5 Risks, Quick Wins
 3. **Framework Score Dashboard** — Side-by-side framework scores with SVG doughnut charts and ASCII progress bars
-4. **Section Scorecard** — Pass/fail/warn rates for each of the 80 audit sections
+4. **Section Scorecard** — Pass/fail/warn rates for each of the 88 audit sections
 5. **Device Context** — Hostname, OS edition, join type, tenant, MDM, TPM, Secure Boot, BIOS/UEFI, IP addresses
 6. **Delta Comparison** — Score changes, resolved failures, regressions, and new failures vs. a previous audit (requires `-PreviousReport`)
 7. **Priority Remediation** — Failed controls grouped by framework with severity tags and one-line remediation guidance
 8. **Warnings Summary** — Warnings grouped by framework for manual review
 9. **Per-Framework Detail** — Full PASS / FAIL / WARN listing for each framework
-10. **Sections Audited** — All 80 sections grouped into logical categories
+10. **Sections Audited** — All 88 sections grouped into logical categories
 
 ### Delta / Trend Comparison
 
@@ -192,7 +281,7 @@ Severity ratings also drive the **weighted score** (Critical ×3, High ×2, Medi
 ## Audit Categories
 
 <details>
-<summary><strong>View all 80 audit categories</strong></summary>
+<summary><strong>View all 88 audit categories</strong></summary>
 
 | # | Category | Frameworks |
 |---|----------|------------|
@@ -276,12 +365,64 @@ Severity ratings also drive the **weighted score** (Critical ×3, High ×2, Medi
 | 78 | CIS L1 — Windows Components | CIS L1 18.10 |
 | 79 | CIS L1 — WiFi & User Templates | CIS L1 18.11/19.7 |
 | 80 | Application Patch Currency | CE+, CE5 |
+| 81 | Custom / Organisation-Specific Checks | Custom |
+| 82 | Google Chrome Enterprise Policy | CIS L2, CE+ |
+| 83 | Mozilla Firefox Enterprise Policy | CIS L2, CE+ |
+| 84 | Driver & Firmware Security | CIS L2, CE+ |
+| 85 | Certificate Store Audit | CIS L2, CE+ |
+| 86 | Local Privilege Escalation Risk | CIS L2, CE+ |
+| 87 | Network Security Posture | CIS L2, CE+ |
+| 88 | Backup & Recovery Readiness | CE+, NCSC |
 
 </details>
 
 ## Changelog
 
-### v6.0.0 — Enhanced Reporting Suite
+### v7.0.0 -- Platform Release
+
+**New Audit Sections (81-88):**
+- **Section 81: Custom Organisation Checks** -- Load organisation-specific audit rules from `custom-checks.json` (registry, service, file checks with configurable operators and severity)
+- **Section 82: Google Chrome Enterprise Policy** -- Safe browsing, password manager, auto-update, extension blocklist, DoH, third-party cookies
+- **Section 83: Mozilla Firefox Enterprise Policy** -- Password manager, auto-update, extension management, telemetry, DoH
+- **Section 84: Driver & Firmware Security** -- Vulnerable driver blocklist, HVCI/memory integrity, Secure Launch, unsigned driver detection, Code Integrity policy
+- **Section 85: Certificate Store Audit** -- Expired root CAs, suspicious self-signed certs, weak algorithms (SHA-1/MD5), expired personal certs, revocation checking
+- **Section 86: Local Privilege Escalation Risk** -- AlwaysInstallElevated, unquoted service paths, world-writable PATH dirs, writable SYSTEM service executables, cached credentials
+- **Section 87: Network Security Posture** -- DNS-over-HTTPS, proxy configuration, Wi-Fi auto-connect, SMB client signing, LLMNR/NetBIOS/mDNS, VPN client detection
+- **Section 88: Backup & Recovery Readiness** -- Volume Shadow Copy, System Restore, restore point age, OneDrive Known Folder Move, recovery partition, Windows Backup service
+
+**Compliance Framework Mappings:**
+- New `framework-mappings.json` companion file mapping 61 check IDs to NIST SP 800-53 Rev 5, ISO 27001:2022, PCI-DSS v4.0, and DISA STIG controls
+- Mappings included in CSV export (ComplianceMappings column) and JSON export (compliance_mappings object per result)
+
+**Software Bill of Materials (SBOM):**
+- CycloneDX 1.5 JSON SBOM generated from installed application inventory
+- Includes all registry and AppX/MSIX applications with version and publisher metadata
+
+**Fleet Auditing:**
+- New `Invoke-FleetAudit.ps1` companion script for multi-device auditing via PowerShell Remoting
+- Connectivity pre-check, parallel execution with throttling, result collection, fleet HTML dashboard
+
+**Scheduled Audit & Drift Detection:**
+- `-Monitor` parameter registers a Windows Scheduled Task (daily or weekly)
+- Auto-detects previous JSON report for delta comparison on each run
+- Writes drift alerts (regressions/new failures) to Windows Event Log (Source: OTY-Audit, ID: 1001) for SIEM integration
+
+**Remediation Automation:**
+- `-Remediate` parameter for dry-run mode showing what changes would be made
+- `-Remediate -Confirm` to apply auto-remediable fixes (registry-based)
+- `-RemediateMinSeverity` to control minimum severity threshold (Critical, High, Medium)
+- Remediation log saved alongside audit outputs
+
+**Expanded Vulnerability Database:**
+- 24 new tracked applications in `Update-KnownVulnerabilities.ps1`: Cisco AnyConnect, Citrix Workspace, GlobalProtect, Zscaler, Sublime Text, GitHub Desktop, JetBrains IDEs (IntelliJ, PyCharm, WebStorm, Rider, GoLand), Ruby, PHP, WinMerge, Beyond Compare, Snagit, Microsoft Teams, OneDrive, Obsidian, 1Password, NordVPN, ProtonVPN, Discord, Postman
+- Total tracked applications: ~119
+
+**Other Improvements:**
+- Version bumped to 7.0.0
+- HTML filter dropdown now includes "Custom" framework option
+- Report footer includes SBOM export path
+
+### v6.0.0 -- Enhanced Reporting Suite
 
 - **Interactive HTML report** — Self-contained `.html` file with inline CSS/JS, SVG doughnut charts per framework, collapsible/expandable sections, sortable and filterable results table, and browser print-to-PDF support
 - **Structured JSON export** — Full `.json` export with metadata, framework scores, compliance verdicts, section-level scorecard, and all results with optional remediation guidance; designed for SIEM, GRC, and dashboard ingestion

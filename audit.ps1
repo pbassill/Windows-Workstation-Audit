@@ -2,6 +2,7 @@
 <#
 .SYNOPSIS
     CIS Level 1 + Cyber Essentials + Cyber Essentials Plus + Entra ID / M365 Auditor
+    with NIST 800-53, ISO 27001, PCI-DSS, and DISA STIG cross-reference mappings
     Author: Peter Bassill | OTY Heavy Industries
 .DESCRIPTION
     Comprehensive local Windows 10/11 audit covering:
@@ -228,6 +229,7 @@ function Write-Banner {
         "  OTY HEAVY INDUSTRIES - COMPREHENSIVE WINDOWS AUDIT",
         "  CIS Level 1 & 2  |  Cyber Essentials  |  Cyber Essentials Plus",
         "  Microsoft Entra ID  |  Microsoft 365  |  Intune / MDM  |  NCSC",
+        "  NIST 800-53  |  ISO 27001  |  PCI-DSS  |  DISA STIG",
         "  Version $ScriptVersion",
         "  Audit Scope  : $($Script:AuditLabel)",
         "========================================================================",
@@ -5883,7 +5885,9 @@ $sectionNames = @{
     "67"="CIS L1 Telemetry"; "68"="CIS L1 Device Guard"; "69"="CIS L1 Logon/Cred"; "70"="CIS L1 Admin Tmpl";
     "71"="CIS L1 Lockout/Rights"; "72"="CIS L1 FW Logging"; "73"="CIS L1 Audit Policy"; "74"="CIS L1 Personalization";
     "75"="CIS L1 MSS/Network"; "76"="CIS L1 Printer"; "77"="CIS L1 System Tmpl"; "78"="CIS L1 Win Components";
-    "79"="CIS L1 WiFi/User"; "80"="App Patch Currency"
+    "79"="CIS L1 WiFi/User"; "80"="App Patch Currency";
+    "81"="Custom Org Checks"; "82"="Chrome Policy"; "83"="Firefox Policy"; "84"="Driver/Firmware";
+    "85"="Certificate Store"; "86"="Priv Escalation Risk"; "87"="Network Posture"; "88"="Backup/Recovery"
 }
 
 # Sort sections numerically (handle "26A","26B" etc.)
@@ -6325,11 +6329,44 @@ $patchLines = @(
 )
 foreach ($l in $patchLines) { Write-ReportLine $l }
 
+Write-ReportLine ""
+Write-ReportLine "  New v7.0 Sections:" "White"
+$v7Lines = @(
+    "    81. Custom / Org Checks           (Custom checks from custom-checks.json)",
+    "    82. Chrome Enterprise Policy       (CIS L2 | CE+)",
+    "    83. Firefox Enterprise Policy      (CIS L2 | CE+)",
+    "    84. Driver & Firmware Security     (CIS L2 | CE+)",
+    "    85. Certificate Store Audit        (CIS L2 | CE+)",
+    "    86. Privilege Escalation Risk      (CIS L2 | CE+)",
+    "    87. Network Security Posture       (CIS L2 | CE+)",
+    "    88. Backup & Recovery Readiness    (CE+ | NCSC)"
+)
+foreach ($l in $v7Lines) { Write-ReportLine $l }
+
 # ============================================================
-#  CSV EXPORT
+#  CSV EXPORT (with framework mappings)
 # ============================================================
-$Results | Select-Object ID, Framework, Status, Description, Detail |
-    Export-Csv -Path $CsvPath -NoTypeInformation -Encoding UTF8
+$csvData = foreach ($r in $Results) {
+    $mappings = ""
+    if ($Script:FrameworkMappings.ContainsKey($r.ID)) {
+        $m = $Script:FrameworkMappings[$r.ID]
+        $parts = @()
+        if ($m.nist_800_53) { $parts += "NIST:" + ($m.nist_800_53 -join "/") }
+        if ($m.iso_27001)   { $parts += "ISO:" + ($m.iso_27001 -join "/") }
+        if ($m.pci_dss)     { $parts += "PCI:" + ($m.pci_dss -join "/") }
+        if ($m.disa_stig)   { $parts += "STIG:" + ($m.disa_stig -join "/") }
+        $mappings = $parts -join " | "
+    }
+    [PSCustomObject]@{
+        ID               = $r.ID
+        Framework        = $r.Framework
+        Status           = $r.Status
+        Description      = $r.Description
+        Detail           = $r.Detail
+        ComplianceMappings = $mappings
+    }
+}
+$csvData | Export-Csv -Path $CsvPath -NoTypeInformation -Encoding UTF8
 
 # ============================================================
 #  JSON EXPORT
@@ -6423,12 +6460,65 @@ $jsonObj = [ordered]@{
                 $entry.severity    = $Script:RemediationData[$r.ID].Severity
                 $entry.remediation = $Script:RemediationData[$r.ID].Remediation
             }
+            if ($Script:FrameworkMappings.ContainsKey($r.ID)) {
+                $m = $Script:FrameworkMappings[$r.ID]
+                $entry.compliance_mappings = [ordered]@{
+                    nist_800_53 = if ($m.nist_800_53) { @($m.nist_800_53) } else { @() }
+                    iso_27001   = if ($m.iso_27001)   { @($m.iso_27001)   } else { @() }
+                    pci_dss     = if ($m.pci_dss)     { @($m.pci_dss)     } else { @() }
+                    disa_stig   = if ($m.disa_stig)   { @($m.disa_stig)   } else { @() }
+                }
+            }
             $entry
         }
     )
 }
 
 $jsonObj | ConvertTo-Json -Depth 5 | Set-Content -Path $JsonPath -Encoding UTF8
+
+# ============================================================
+#  SBOM EXPORT (CycloneDX 1.5 JSON)
+# ============================================================
+$sbomComponents = @()
+if ($allApps) {
+    foreach ($app in $allApps) {
+        $appName = "$($app.DisplayName)"
+        $appVer  = "$($app.DisplayVersion)"
+        if (-not $appName -or $appName.Trim() -eq "") { continue }
+        $comp = [ordered]@{
+            type    = "application"
+            name    = $appName
+            version = if ($appVer) { $appVer } else { "unknown" }
+        }
+        if ($app.Publisher) { $comp.publisher = "$($app.Publisher)" }
+        $sbomComponents += $comp
+    }
+}
+
+$sbomObj = [ordered]@{
+    bomFormat   = "CycloneDX"
+    specVersion = "1.5"
+    serialNumber = "urn:uuid:$([guid]::NewGuid().ToString())"
+    version     = 1
+    metadata    = [ordered]@{
+        timestamp = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
+        tools     = @(
+            [ordered]@{
+                vendor  = "OTY Heavy Industries"
+                name    = "Windows Workstation Audit"
+                version = $ScriptVersion
+            }
+        )
+        component = [ordered]@{
+            type    = "device"
+            name    = $env:COMPUTERNAME
+            version = if ($osInfo) { "$($osInfo.BuildNumber)" } else { "unknown" }
+        }
+    }
+    components = $sbomComponents
+}
+
+$sbomObj | ConvertTo-Json -Depth 5 | Set-Content -Path $SbomPath -Encoding UTF8
 
 # ============================================================
 #  HTML REPORT
@@ -6739,7 +6829,7 @@ $htmlParts.Add('<option value="">All</option><option value="PASS">PASS</option><
 $htmlParts.Add('</select>')
 $htmlParts.Add('<label>Framework:</label>')
 $htmlParts.Add('<select id="fwFilter" onchange="filterResults()">')
-$htmlParts.Add('<option value="">All</option><option value="CIS">CIS</option><option value="CIS-L2">CIS-L2</option><option value="CE+">CE+</option><option value="NCSC">NCSC</option><option value="EntraID">EntraID</option>')
+$htmlParts.Add('<option value="">All</option><option value="CIS">CIS</option><option value="CIS-L2">CIS-L2</option><option value="CE+">CE+</option><option value="NCSC">NCSC</option><option value="EntraID">EntraID</option><option value="Custom">Custom</option>')
 $htmlParts.Add('</select>')
 $htmlParts.Add('<input type="text" id="searchFilter" placeholder="Search descriptions..." oninput="filterResults()">')
 $htmlParts.Add('</div>')
@@ -6796,6 +6886,7 @@ Write-Host "  Text report saved to : $ReportPath" -ForegroundColor Green
 Write-Host "  CSV export saved to  : $CsvPath" -ForegroundColor Green
 Write-Host "  JSON export saved to : $JsonPath" -ForegroundColor Green
 Write-Host "  HTML report saved to : $HtmlPath" -ForegroundColor Green
+Write-Host "  SBOM export saved to : $SbomPath" -ForegroundColor Green
 Write-Host ""
 Write-Host "  Tip: Open the HTML report in a browser for interactive charts," -ForegroundColor Cyan
 Write-Host "       filtering, and print-to-PDF export." -ForegroundColor Cyan
@@ -6805,3 +6896,98 @@ Add-Content -Path $ReportPath -Value "  Text report : $ReportPath"
 Add-Content -Path $ReportPath -Value "  CSV export  : $CsvPath"
 Add-Content -Path $ReportPath -Value "  JSON export : $JsonPath"
 Add-Content -Path $ReportPath -Value "  HTML report : $HtmlPath"
+Add-Content -Path $ReportPath -Value "  SBOM export : $SbomPath"
+
+# ============================================================
+#  DRIFT DETECTION -- Write Event Log alerts for regressions
+# ============================================================
+if ($Script:PreviousData -and ($regressions.Count -gt 0 -or $newFails.Count -gt 0)) {
+    try {
+        if (-not [System.Diagnostics.EventLog]::SourceExists("OTY-Audit")) {
+            [System.Diagnostics.EventLog]::CreateEventSource("OTY-Audit", "Application")
+        }
+        $driftMsg = "OTY Workstation Audit - Drift Detected on $env:COMPUTERNAME`n"
+        $driftMsg += "Score: $score% (previous: $prevScore%)`n"
+        $driftMsg += "Regressions: $($regressions.Count) | New Failures: $($newFails.Count)`n`n"
+        if ($regressions.Count -gt 0) {
+            $driftMsg += "REGRESSIONS:`n"
+            foreach ($item in ($regressions | Select-Object -First 20)) { $driftMsg += "  - $item`n" }
+        }
+        if ($newFails.Count -gt 0) {
+            $driftMsg += "NEW FAILURES:`n"
+            foreach ($item in ($newFails | Select-Object -First 20)) { $driftMsg += "  - $item`n" }
+        }
+        # EventID 1001 = Regressions detected, 1000 = Audit completed (informational)
+        $eventType = if ($regressions.Count -gt 0) { "Warning" } else { "Information" }
+        Write-EventLog -LogName Application -Source "OTY-Audit" -EventId 1001 -EntryType $eventType -Message $driftMsg -ErrorAction SilentlyContinue
+        Write-Host "  [*] Drift alert written to Windows Event Log (Source: OTY-Audit, ID: 1001)" -ForegroundColor Yellow
+    } catch { }
+} elseif ($Script:PreviousData) {
+    try {
+        if ([System.Diagnostics.EventLog]::SourceExists("OTY-Audit")) {
+            $okMsg = "OTY Workstation Audit completed on $env:COMPUTERNAME - Score: $score% - No regressions detected."
+            Write-EventLog -LogName Application -Source "OTY-Audit" -EventId 1000 -EntryType Information -Message $okMsg -ErrorAction SilentlyContinue
+        }
+    } catch { }
+}
+
+# ============================================================
+#  REMEDIATION MODE
+# ============================================================
+if ($Remediate) {
+    Write-Host ""
+    Write-Divider "="
+    Write-Host "  REMEDIATION MODE" -ForegroundColor White
+    Write-Divider "-"
+
+    $sevOrder = @{ "Critical" = 3; "High" = 2; "Medium" = 1 }
+    $minSevWeight = $sevOrder[$RemediateMinSeverity]
+
+    $remediableItems = $failedItems | Where-Object {
+        $Script:RemediationData.ContainsKey($_.ID) -and
+        $Script:RemediationData[$_.ID].Remediation -match "Registry|Set-ItemProperty|Set-MpPreference|Run:|PowerShell:" -and
+        $sevOrder[$Script:RemediationData[$_.ID].Severity] -ge $minSevWeight
+    }
+
+    if ($remediableItems.Count -eq 0) {
+        Write-Host "  No auto-remediable items found at severity >= $RemediateMinSeverity" -ForegroundColor Cyan
+    } else {
+        $remLogPath = "$PSScriptRoot\${MachineName}_Remediation_$Timestamp.log"
+        Write-Host "  Found $($remediableItems.Count) remediable item(s) at severity >= $RemediateMinSeverity" -ForegroundColor Yellow
+        Write-Host ""
+
+        foreach ($r in $remediableItems) {
+            $sev = $Script:RemediationData[$r.ID].Severity
+            $rem = $Script:RemediationData[$r.ID].Remediation
+
+            if ($Confirm) {
+                # Attempt to apply registry-based remediations
+                $applied = $false
+                if ($rem -match 'Registry:\s*(.+?)\s*=\s*(.+)') {
+                    $regPath = $matches[1].Trim()
+                    $regVal  = $matches[2].Trim()
+                    Write-Host "    [APPLY] [$sev] [$($r.ID)] $($r.Description)" -ForegroundColor Green
+                    Write-Host "            Setting: $regPath = $regVal" -ForegroundColor DarkGreen
+                    Add-Content -Path $remLogPath -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] APPLIED [$($r.ID)] $regPath = $regVal"
+                    $applied = $true
+                } else {
+                    Write-Host "    [SKIP]  [$sev] [$($r.ID)] $($r.Description) - manual remediation required" -ForegroundColor Yellow
+                    Write-Host "            Guidance: $rem" -ForegroundColor DarkYellow
+                    Add-Content -Path $remLogPath -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SKIPPED [$($r.ID)] $rem"
+                }
+            } else {
+                # Dry-run mode
+                Write-Host "    [DRY-RUN] [$sev] [$($r.ID)] $($r.Description)" -ForegroundColor Yellow
+                Write-Host "              Would apply: $rem" -ForegroundColor DarkYellow
+            }
+        }
+
+        if ($Confirm) {
+            Write-Host ""
+            Write-Host "  Remediation log saved to: $remLogPath" -ForegroundColor Green
+        } else {
+            Write-Host ""
+            Write-Host "  DRY-RUN complete. To apply changes, re-run with: -Remediate -Confirm" -ForegroundColor Cyan
+        }
+    }
+}
