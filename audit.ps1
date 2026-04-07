@@ -29,6 +29,11 @@
       ncsc  - NCSC alignment checks only
       entra - Entra ID / M365 checks only
 
+.PARAMETER PreviousReport
+    Path to a previous audit JSON export file. When provided, the report
+    includes a delta/trend comparison showing new failures, resolved items,
+    score changes, and regressions since the last audit.
+
 .EXAMPLE
     .\audit.ps1 -Audit all
     .\audit.ps1 -Audit ce
@@ -36,6 +41,7 @@
     .\audit.ps1 -Audit cis2
     .\audit.ps1 -Audit ncsc
     .\audit.ps1 -Audit entra
+    .\audit.ps1 -PreviousReport "C:\audits\previous.json"
 
 .NOTES
     Must be run as Administrator.
@@ -45,17 +51,21 @@
 #>
 param(
     [ValidateSet("all","ce","cis1","cis2","ncsc","entra")]
-    [string]$Audit = "all"
+    [string]$Audit = "all",
+
+    [string]$PreviousReport = ""
 )
 
 # ============================================================
 #  INITIALISATION
 # ============================================================
-$ScriptVersion = "5.1.0"
+$ScriptVersion = "6.0.0"
 $Timestamp     = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
 $MachineName   = $env:COMPUTERNAME
 $ReportPath    = "$env:USERPROFILE\${MachineName}_Audit_$Timestamp.txt"
 $CsvPath       = "$env:USERPROFILE\${MachineName}_Audit_$Timestamp.csv"
+$JsonPath      = "$env:USERPROFILE\${MachineName}_Audit_$Timestamp.json"
+$HtmlPath      = "$env:USERPROFILE\${MachineName}_Audit_$Timestamp.html"
 $SecCfg        = "$env:TEMP\oty_secedit_$Timestamp.cfg"
 $Results       = [System.Collections.Generic.List[PSCustomObject]]::new()
 $AuditStartTime = Get-Date
@@ -92,6 +102,55 @@ $Script:DeviceID         = "Not detected"
 $Script:PRTPresent       = $false
 $Script:ComplianceURL    = ""
 $Script:MDMUrl           = ""
+
+# ---- Load remediation guidance companion file ----
+$Script:RemediationData = @{}
+$remDataPath = Join-Path $PSScriptRoot "remediation.json"
+if (Test-Path $remDataPath) {
+    try {
+        $remJson = Get-Content $remDataPath -Raw -ErrorAction Stop | ConvertFrom-Json
+        foreach ($entry in $remJson) {
+            $Script:RemediationData[$entry.id] = @{
+                Severity    = $entry.severity
+                Remediation = $entry.remediation
+            }
+        }
+    } catch { }
+}
+
+# ---- Load previous report for delta comparison ----
+$Script:PreviousData = $null
+if ($PreviousReport -and (Test-Path $PreviousReport)) {
+    try {
+        $Script:PreviousData = Get-Content $PreviousReport -Raw -ErrorAction Stop | ConvertFrom-Json
+    } catch {
+        Write-Host "  [!] Could not parse previous report: $_" -ForegroundColor Yellow
+    }
+}
+
+# ---- Severity weight mapping ----
+# Used for weighted scoring: Critical x3, High x2, Medium x1
+function Get-SeverityWeight {
+    param([string]$CheckID)
+    if ($Script:RemediationData.ContainsKey($CheckID)) {
+        $sev = $Script:RemediationData[$CheckID].Severity
+        switch ($sev) {
+            "Critical" { return 3 }
+            "High"     { return 2 }
+            default    { return 1 }
+        }
+    }
+    return 1
+}
+
+# ---- Compliance threshold mapping ----
+$Script:ComplianceThresholds = @{
+    "CIS"     = @{ Threshold = 90;  Label = "CIS Level 1 (90%)"         }
+    "CIS-L2"  = @{ Threshold = 90;  Label = "CIS Level 2 (90%)"         }
+    "CE+"     = @{ Threshold = 100; Label = "Cyber Essentials (100%)"    }
+    "NCSC"    = @{ Threshold = 85;  Label = "NCSC Alignment (85%)"       }
+    "EntraID" = @{ Threshold = 90;  Label = "Entra ID / M365 (90%)"     }
+}
 
 # ============================================================
 #  HELPER FUNCTIONS
