@@ -4810,7 +4810,7 @@ foreach ($rp in $regPaths) {
     try {
         $items = Get-ItemProperty $rp -ErrorAction SilentlyContinue |
                  Where-Object { $_.DisplayName -and $_.DisplayName.Trim() -ne "" } |
-                 Select-Object DisplayName, DisplayVersion, InstallDate, Publisher, UninstallString
+                 Select-Object DisplayName, DisplayVersion, InstallDate, Publisher, UninstallString, InstallLocation
         if ($items) { $installedApps += $items }
     } catch { }
 }
@@ -4826,7 +4826,8 @@ try {
                               @{N='DisplayVersion';E={$_.Version}},
                               @{N='InstallDate';E={$null}},
                               @{N='Publisher';E={$_.Publisher}},
-                              @{N='UninstallString';E={$null}}
+                              @{N='UninstallString';E={$null}},
+                              @{N='InstallLocation';E={$_.InstallLocation}}
 } catch { }
 
 $allApps = @($installedApps) + @($appxApps)
@@ -4871,6 +4872,9 @@ foreach ($app in $allApps) {
             $kevTag = " ** ACTIVELY EXPLOITED (KEV) **"
         }
         $detail = "$name v$version < $($matchedVuln.vulnerable_below) [$sev] ($($matchedVuln.cve))${kevTag}"
+        if ($app.InstallLocation -and $app.InstallLocation.Trim() -ne "") {
+            $detail += " | Path: $($app.InstallLocation.TrimEnd('\'))"
+        }
         $vulnDetails.Add($detail)
         continue
     }
