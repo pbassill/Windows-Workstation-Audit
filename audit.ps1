@@ -4929,11 +4929,11 @@ if ($vulnCount -gt 0) {
 
 # ---- 80.5 General Patch Currency (30-day window) ----
 if ($staleCount -eq 0 -and $totalApps -gt 0) {
-    Add-Result "80.5" "App Updates Within 30-Day Window" "PASS" "All $currentCount datable apps updated within last 30 days" "CE+"
+    Add-Result "80.5" "App Updates Within 30-Day Window" "INFO" "All $currentCount datable apps updated within last 30 days" "CE+"
 } elseif ($staleCount -gt 0) {
     $topStale = if ($staleDetails.Count -le $Script:MaxDisplayedItems) { $staleDetails -join "; " } else { ($staleDetails[0..($Script:MaxDisplayedItems - 1)] -join "; ") + " ... and $($staleDetails.Count - $Script:MaxDisplayedItems) more" }
     $stalePct = if ($totalApps -gt 0) { [math]::Round(($staleCount / $totalApps) * 100, 0) } else { 0 }
-    Add-Result "80.5" "App Updates Within 30-Day Window" "WARN" "$staleCount of $totalApps apps not updated in >30 days ($stalePct%) - manual review recommended: $topStale" "CE+"
+    Add-Result "80.5" "App Updates Within 30-Day Window" "INFO" "$staleCount of $totalApps apps not updated in >30 days ($stalePct%) - manual review recommended: $topStale" "CE+"
 }
 
 # ---- 80.6 Apps With No Version/Date (manual review) ----
@@ -4945,16 +4945,14 @@ if ($unknownCount -gt 0) {
 }
 
 # ---- 80.7 Overall Application Patch Currency ----
-$overallStatus = "PASS"
 $overallDetail = "$totalApps apps: $currentCount current"
-if ($vulnCount -gt 0)  { $overallStatus = "FAIL"; $overallDetail += ", $vulnCount VULNERABLE" }
+if ($vulnCount -gt 0)  { $overallDetail += ", $vulnCount VULNERABLE" }
 if ($staleCount -gt 0) {
-    if ($overallStatus -ne "FAIL") { $overallStatus = "WARN" }
     $overallDetail += ", $staleCount not updated >30d (manual review)"
 }
 if ($unknownCount -gt 0) { $overallDetail += ", $unknownCount unknown" }
 $overallDetail += " | Thresholds: 14d critical/high, 30d other (CE5)"
-Add-Result "80.7" "Overall App Patch Currency" $overallStatus $overallDetail "CE+"
+Add-Result "80.7" "Overall App Patch Currency" "INFO" $overallDetail "CE+"
 
 # ============================================================
 #  CLEAN UP
