@@ -53,8 +53,9 @@ param(
 # ============================================================
 $ScriptVersion = "5.1.0"
 $Timestamp     = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
-$ReportPath    = "$env:USERPROFILE\OTY_Heavy_Industries_Audit_$Timestamp.txt"
-$CsvPath       = "$env:USERPROFILE\OTY_Heavy_Industries_Audit_$Timestamp.csv"
+$MachineName   = $env:COMPUTERNAME
+$ReportPath    = "$env:USERPROFILE\${MachineName}_Audit_$Timestamp.txt"
+$CsvPath       = "$env:USERPROFILE\${MachineName}_Audit_$Timestamp.csv"
 $SecCfg        = "$env:TEMP\oty_secedit_$Timestamp.cfg"
 $Results       = [System.Collections.Generic.List[PSCustomObject]]::new()
 $AuditStartTime = Get-Date
