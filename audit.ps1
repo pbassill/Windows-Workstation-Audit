@@ -4897,10 +4897,10 @@ foreach ($app in $allApps) {
             $currentCount++
         } elseif ($ageDays -le 90) {
             $staleCount++
-            $staleDetails.Add("$name v$version - installed $ageDays days ago")
+            $staleDetails.Add("$name v$version - not updated in $ageDays days (manual review)")
         } else {
             $staleCount++
-            $staleDetails.Add("$name v$version - installed $ageDays days ago (>90d)")
+            $staleDetails.Add("$name v$version - not updated in $ageDays days (>90d, manual review)")
         }
     } else {
         # Has version but no install date - cannot determine age
@@ -4929,12 +4929,11 @@ if ($vulnCount -gt 0) {
 
 # ---- 80.5 General Patch Currency (30-day window) ----
 if ($staleCount -eq 0 -and $totalApps -gt 0) {
-    Add-Result "80.5" "App Installs Within 30-Day Window" "PASS" "All $currentCount datable apps installed within last 30 days" "CE+"
+    Add-Result "80.5" "App Updates Within 30-Day Window" "PASS" "All $currentCount datable apps updated within last 30 days" "CE+"
 } elseif ($staleCount -gt 0) {
     $topStale = if ($staleDetails.Count -le $Script:MaxDisplayedItems) { $staleDetails -join "; " } else { ($staleDetails[0..($Script:MaxDisplayedItems - 1)] -join "; ") + " ... and $($staleDetails.Count - $Script:MaxDisplayedItems) more" }
     $stalePct = if ($totalApps -gt 0) { [math]::Round(($staleCount / $totalApps) * 100, 0) } else { 0 }
-    $s = if ($stalePct -le 10) { "WARN" } else { "FAIL" }
-    Add-Result "80.5" "App Installs Within 30-Day Window" $s "$staleCount of $totalApps apps installed >30 days ago ($stalePct%): $topStale" "CE+"
+    Add-Result "80.5" "App Updates Within 30-Day Window" "WARN" "$staleCount of $totalApps apps not updated in >30 days ($stalePct%) - manual review recommended: $topStale" "CE+"
 }
 
 # ---- 80.6 Apps With No Version/Date (manual review) ----
@@ -4951,7 +4950,7 @@ $overallDetail = "$totalApps apps: $currentCount current"
 if ($vulnCount -gt 0)  { $overallStatus = "FAIL"; $overallDetail += ", $vulnCount VULNERABLE" }
 if ($staleCount -gt 0) {
     if ($overallStatus -ne "FAIL") { $overallStatus = "WARN" }
-    $overallDetail += ", $staleCount stale (>30d)"
+    $overallDetail += ", $staleCount not updated >30d (manual review)"
 }
 if ($unknownCount -gt 0) { $overallDetail += ", $unknownCount unknown" }
 $overallDetail += " | Thresholds: 14d critical/high, 30d other (CE5)"
