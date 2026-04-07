@@ -29,9 +29,6 @@
     Output file path. Defaults to known-vulnerabilities.json in the script
     directory (or current directory when $PSScriptRoot is empty).
 
-.PARAMETER ResultsPerApp
-    Maximum NVD results to retrieve per application. Default: 100.
-
 .EXAMPLE
     .\Update-KnownVulnerabilities.ps1
 
@@ -45,8 +42,7 @@
 [CmdletBinding()]
 param(
     [string]$NvdApiKey,
-    [string]$OutputPath,
-    [int]$ResultsPerApp = 100
+    [string]$OutputPath
 )
 
 Set-StrictMode -Version Latest
@@ -686,25 +682,53 @@ function Compare-VersionStrings {
 function Invoke-NvdApiQuery {
     <#
     .SYNOPSIS
-        Query the NVD CVE API with a keyword search.
+        Query the NVD CVE API with a keyword search, paginating to retrieve ALL
+        matching vulnerabilities.
     #>
     param(
-        [string]$Keyword,
-        [int]$MaxResults = 100
+        [string]$Keyword
     )
 
     $encodedKeyword = [Uri]::EscapeDataString($Keyword)
-    $url = "${NvdApiBase}?keywordSearch=${encodedKeyword}&resultsPerPage=${MaxResults}"
+    $pageSize       = 2000          # NVD API v2.0 maximum
+    $startIndex     = 0
+    $allVulns       = [System.Collections.Generic.List[object]]::new()
+    $totalResults   = $null
 
     $headers = @{ "Accept" = "application/json" }
     if ($NvdApiKey) { $headers["apiKey"] = $NvdApiKey }
 
-    try {
-        $response = Invoke-RestMethod -Uri $url -Headers $headers -TimeoutSec 60 -ErrorAction Stop
-        return $response
-    } catch {
-        Write-Warning "  NVD API request failed for '${Keyword}': $($_.Exception.Message)"
-        return $null
+    do {
+        $url = "${NvdApiBase}?keywordSearch=${encodedKeyword}&resultsPerPage=${pageSize}&startIndex=${startIndex}"
+
+        try {
+            $response = Invoke-RestMethod -Uri $url -Headers $headers -TimeoutSec 60 -ErrorAction Stop
+        } catch {
+            Write-Warning "  NVD API request failed for '${Keyword}' (startIndex=${startIndex}): $($_.Exception.Message)"
+            # Return whatever we have so far rather than discarding partial data
+            break
+        }
+
+        if ($null -eq $totalResults -and $response.PSObject.Properties['totalResults']) {
+            $totalResults = [int]$response.totalResults
+        }
+
+        if ($response.PSObject.Properties['vulnerabilities'] -and $response.vulnerabilities.Count -gt 0) {
+            foreach ($v in $response.vulnerabilities) { $allVulns.Add($v) }
+        }
+
+        $startIndex += $pageSize
+
+        # Pause between pages to respect rate limits (skip if we are done)
+        if ($null -ne $totalResults -and $startIndex -lt $totalResults) {
+            Start-Sleep -Seconds $RequestDelaySec
+        }
+    } while ($null -ne $totalResults -and $startIndex -lt $totalResults)
+
+    # Return a synthetic response object matching the original shape
+    return @{
+        totalResults    = if ($null -ne $totalResults) { $totalResults } else { $allVulns.Count }
+        vulnerabilities = $allVulns
     }
 }
 
@@ -896,11 +920,11 @@ for ($i = 0; $i -lt $TrackedApps.Count; $i++) {
     $tracked = $TrackedApps[$i]
     Write-Host "[$($i + 1)/$($TrackedApps.Count)] $($tracked.app) " -NoNewline
 
-    $response = Invoke-NvdApiQuery -Keyword $tracked.keyword -MaxResults $ResultsPerApp
+    $response = Invoke-NvdApiQuery -Keyword $tracked.keyword
 
     $best = $null
     if ($response -and $response.vulnerabilities -and $response.vulnerabilities.Count -gt 0) {
-        Write-Host "($($response.totalResults) CVEs) " -NoNewline -ForegroundColor DarkGray
+        Write-Host "($($response.totalResults) total, $($response.vulnerabilities.Count) fetched) " -NoNewline -ForegroundColor DarkGray
         $best = Find-BestVulnerability -Vulnerabilities $response.vulnerabilities `
                                        -CpePatterns $tracked.cpe_patterns
     }
