@@ -328,77 +328,105 @@ function Find-BestVulnerability {
     $bestEntry    = $null
 
     foreach ($vuln in $Vulnerabilities) {
-        $cve = $vuln.cve
+        try {
+            $cve = $vuln.cve
 
-        # ---- Determine severity ----
-        $severity = $null
-        $metrics  = $cve.metrics
-        if ($metrics -and $metrics.PSObject.Properties['cvssMetricV40'] -and $metrics.cvssMetricV40) {
-            $severity = $metrics.cvssMetricV40[0].cvssData.baseSeverity
-        } elseif ($metrics -and $metrics.PSObject.Properties['cvssMetricV31'] -and $metrics.cvssMetricV31) {
-            $severity = $metrics.cvssMetricV31[0].cvssData.baseSeverity
-        } elseif ($metrics -and $metrics.PSObject.Properties['cvssMetricV30'] -and $metrics.cvssMetricV30) {
-            $severity = $metrics.cvssMetricV30[0].cvssData.baseSeverity
-        } elseif ($metrics -and $metrics.PSObject.Properties['cvssMetricV2'] -and $metrics.cvssMetricV2) {
-            # NVD API v2.0: cvssMetricV2 stores baseSeverity at the metric level, not inside cvssData
-            $v2sev = $null
-            $v2metric = $metrics.cvssMetricV2[0]
-            if ($v2metric.PSObject.Properties['baseSeverity']) {
-                $v2sev = $v2metric.baseSeverity
-            }
-            if ($v2sev) { $severity = $v2sev }
-        }
-        if (-not $severity -or $severity -notin @("CRITICAL", "HIGH")) { continue }
-        $rank = $severityRank[$severity]
+            # ---- Determine severity ----
+            # Use .PSObject.Properties[...].Value for every access on the
+            # deserialized NVD JSON to avoid PropertyNotFoundException under
+            # Set-StrictMode -Version Latest (PS 5.1 strict mode).
+            $severity = $null
+            $metrics  = $null
+            if ($cve.PSObject.Properties['metrics']) { $metrics = $cve.metrics }
 
-        # ---- Walk configuration nodes ----
-        if (-not $cve.configurations) { continue }
-
-        foreach ($config in $cve.configurations) {
-            foreach ($node in $config.nodes) {
-                # Collect cpeMatch entries from the node and any children
-                $allMatches = [System.Collections.Generic.List[object]]::new()
-                if ($node.cpeMatch) { foreach ($m in $node.cpeMatch) { $allMatches.Add($m) } }
-                if ($node.children) {
-                    foreach ($child in $node.children) {
-                        if ($child.cpeMatch) { foreach ($m in $child.cpeMatch) { $allMatches.Add($m) } }
-                    }
-                }
-
-                foreach ($m in $allMatches) {
-                    if (-not $m.vulnerable)          { continue }
-                    if (-not $m.versionEndExcluding)  { continue }
-
-                    if (-not (Test-CpeMatch -CpeCriteria $m.criteria -CpePatterns $CpePatterns)) {
-                        continue
-                    }
-
-                    $fixedVer = $m.versionEndExcluding
-
-                    # Prefer highest version; break ties by severity
-                    $isBetter = $false
-                    if (-not $bestVersion) {
-                        $isBetter = $true
-                    } else {
-                        $cmp = Compare-VersionStrings $fixedVer $bestVersion
-                        if ($null -ne $cmp -and $cmp -gt 0) {
-                            $isBetter = $true
-                        } elseif ($null -ne $cmp -and $cmp -eq 0 -and $rank -gt $bestRank) {
-                            $isBetter = $true
+            if ($metrics) {
+                # Try CVSS v4.0, v3.1, v3.0 (baseSeverity lives inside cvssData)
+                foreach ($metricKey in @('cvssMetricV40', 'cvssMetricV31', 'cvssMetricV30')) {
+                    if ($metrics.PSObject.Properties[$metricKey]) {
+                        $metricArray = $metrics.PSObject.Properties[$metricKey].Value
+                        if ($metricArray -and @($metricArray).Count -gt 0) {
+                            $entry0 = @($metricArray)[0]
+                            if ($entry0.PSObject.Properties['cvssData'] -and
+                                $entry0.cvssData.PSObject.Properties['baseSeverity']) {
+                                $severity = $entry0.cvssData.baseSeverity
+                                break
+                            }
                         }
                     }
-
-                    if ($isBetter) {
-                        $bestVersion = $fixedVer
-                        $bestRank    = $rank
-                        $bestEntry   = @{
-                            severity         = $severity.ToLower()
-                            cve              = $cve.id
-                            vulnerable_below = $fixedVer
+                }
+                # Fallback: CVSS v2 -- baseSeverity sits at the metric level
+                if (-not $severity -and $metrics.PSObject.Properties['cvssMetricV2']) {
+                    $v2Array = $metrics.PSObject.Properties['cvssMetricV2'].Value
+                    if ($v2Array -and @($v2Array).Count -gt 0) {
+                        $v2metric = @($v2Array)[0]
+                        if ($v2metric.PSObject.Properties['baseSeverity']) {
+                            $severity = $v2metric.baseSeverity
                         }
                     }
                 }
             }
+
+            if (-not $severity -or $severity -notin @("CRITICAL", "HIGH")) { continue }
+            $rank = $severityRank[$severity]
+
+            # ---- Walk configuration nodes ----
+            if (-not ($cve.PSObject.Properties['configurations'] -and $cve.configurations)) { continue }
+
+            foreach ($config in $cve.configurations) {
+                if (-not ($config.PSObject.Properties['nodes'] -and $config.nodes)) { continue }
+                foreach ($node in $config.nodes) {
+                    # Collect cpeMatch entries from the node and any children
+                    $allMatches = [System.Collections.Generic.List[object]]::new()
+                    if ($node.PSObject.Properties['cpeMatch'] -and $node.cpeMatch) {
+                        foreach ($m in $node.cpeMatch) { $allMatches.Add($m) }
+                    }
+                    if ($node.PSObject.Properties['children'] -and $node.children) {
+                        foreach ($child in $node.children) {
+                            if ($child.PSObject.Properties['cpeMatch'] -and $child.cpeMatch) {
+                                foreach ($m in $child.cpeMatch) { $allMatches.Add($m) }
+                            }
+                        }
+                    }
+
+                    foreach ($m in $allMatches) {
+                        if (-not ($m.PSObject.Properties['vulnerable'] -and $m.vulnerable)) { continue }
+                        if (-not ($m.PSObject.Properties['versionEndExcluding'] -and $m.versionEndExcluding)) { continue }
+
+                        $criteria = if ($m.PSObject.Properties['criteria']) { $m.criteria } else { '' }
+                        if (-not (Test-CpeMatch -CpeCriteria $criteria -CpePatterns $CpePatterns)) {
+                            continue
+                        }
+
+                        $fixedVer = $m.versionEndExcluding
+
+                        # Prefer highest version; break ties by severity
+                        $isBetter = $false
+                        if (-not $bestVersion) {
+                            $isBetter = $true
+                        } else {
+                            $cmp = Compare-VersionStrings $fixedVer $bestVersion
+                            if ($null -ne $cmp -and $cmp -gt 0) {
+                                $isBetter = $true
+                            } elseif ($null -ne $cmp -and $cmp -eq 0 -and $rank -gt $bestRank) {
+                                $isBetter = $true
+                            }
+                        }
+
+                        if ($isBetter) {
+                            $bestVersion = $fixedVer
+                            $bestRank    = $rank
+                            $bestEntry   = @{
+                                severity         = $severity.ToLower()
+                                cve              = $cve.id
+                                vulnerable_below = $fixedVer
+                            }
+                        }
+                    }
+                }
+            }
+        } catch {
+            # Skip CVEs with unexpected structure rather than aborting the run
+            continue
         }
     }
 
