@@ -4688,6 +4688,212 @@ $s   = if ($val -eq 1) { "PASS" } else { "WARN" }
 Add-Result "79.4" "Prevent users from sharing files within their prof" $s "CIS 19.7.26.1: NoInplaceSharing: $(if ($null -eq $val) {'Not set'} else {$val})" "CIS"
 
 # ============================================================
+#  SECTION 80: APPLICATION PATCH CURRENCY  [CE+ | CE5]
+# ============================================================
+Write-SectionHeader "80. APPLICATION PATCH CURRENCY" "CE+ | CE5"
+
+# ---- Load known-vulnerabilities.json companion file if available ----
+$vulnDataPath = Join-Path $PSScriptRoot "known-vulnerabilities.json"
+$knownVulns   = @()
+if (Test-Path $vulnDataPath) {
+    try {
+        $knownVulns = Get-Content $vulnDataPath -Raw -ErrorAction Stop | ConvertFrom-Json
+        Add-Result "80.1" "Vulnerability Data File Loaded" "PASS" "Loaded $($knownVulns.Count) entries from known-vulnerabilities.json" "CE+"
+    } catch {
+        Add-Result "80.1" "Vulnerability Data File Loaded" "WARN" "known-vulnerabilities.json found but failed to parse: $_" "CE+"
+    }
+} else {
+    Add-Result "80.1" "Vulnerability Data File Loaded" "INFO" "known-vulnerabilities.json not found in script directory - using age-based checks only" "CE+"
+}
+
+# ---- Helper: compare version strings (dotted numeric) ----
+$Script:MaxDisplayedItems = 5
+function Compare-AppVersion {
+    param([string]$Installed, [string]$Required)
+    try {
+        # Strip non-numeric prefixes/suffixes, keep dotted numeric core
+        $cleanInstalled = ($Installed -replace '[^0-9.]', '').TrimEnd('.').TrimStart('.')
+        $cleanRequired  = ($Required  -replace '[^0-9.]', '').TrimEnd('.').TrimStart('.')
+        if (-not $cleanInstalled -or -not $cleanRequired) { return $null }
+        # Remove consecutive dots from edge cases
+        $cleanInstalled = $cleanInstalled -replace '\.{2,}', '.'
+        $cleanRequired  = $cleanRequired  -replace '\.{2,}', '.'
+        $iParts = $cleanInstalled.Split('.') | Where-Object { $_ -ne '' } | ForEach-Object {
+            $n = 0; if ([long]::TryParse($_, [ref]$n)) { $n } else { return $null }
+        }
+        $rParts = $cleanRequired.Split('.') | Where-Object { $_ -ne '' } | ForEach-Object {
+            $n = 0; if ([long]::TryParse($_, [ref]$n)) { $n } else { return $null }
+        }
+        if ($null -eq $iParts -or $null -eq $rParts) { return $null }
+        $iParts = @($iParts)
+        $rParts = @($rParts)
+        $maxLen = [math]::Max($iParts.Count, $rParts.Count)
+        for ($i = 0; $i -lt $maxLen; $i++) {
+            $iv = if ($i -lt $iParts.Count) { $iParts[$i] } else { 0 }
+            $rv = if ($i -lt $rParts.Count) { $rParts[$i] } else { 0 }
+            if ($iv -lt $rv) { return -1 }   # installed < required  (vulnerable)
+            if ($iv -gt $rv) { return  1 }   # installed > required  (safe)
+        }
+        return 0  # equal
+    } catch {
+        return $null
+    }
+}
+
+# ---- Enumerate installed apps from Uninstall registry hives ----
+$regPaths = @(
+    "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*",
+    "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*"
+)
+$installedApps = @()
+foreach ($rp in $regPaths) {
+    try {
+        $items = Get-ItemProperty $rp -ErrorAction SilentlyContinue |
+                 Where-Object { $_.DisplayName -and $_.DisplayName.Trim() -ne "" } |
+                 Select-Object DisplayName, DisplayVersion, InstallDate, Publisher, UninstallString
+        if ($items) { $installedApps += $items }
+    } catch { }
+}
+# De-duplicate by DisplayName (keep first occurrence from enumeration order)
+$installedApps = $installedApps | Sort-Object DisplayName -Unique
+
+# ---- Enumerate AppX / MSIX packages ----
+$appxApps = @()
+try {
+    $appxApps = Get-AppxPackage -ErrorAction SilentlyContinue |
+                Where-Object { $_.IsFramework -eq $false -and $_.SignatureKind -ne "System" } |
+                Select-Object @{N='DisplayName';E={$_.Name}},
+                              @{N='DisplayVersion';E={$_.Version}},
+                              @{N='InstallDate';E={$null}},
+                              @{N='Publisher';E={$_.Publisher}},
+                              @{N='UninstallString';E={$null}}
+} catch { }
+
+$allApps = @($installedApps) + @($appxApps)
+$totalApps = $allApps.Count
+
+Add-Result "80.2" "Installed Applications Enumerated" "INFO" "Found $totalApps applications ($($installedApps.Count) registry + $($appxApps.Count) AppX/MSIX)" "CE+"
+
+# ---- Counters ----
+$currentCount  = 0   # install within acceptable window
+$staleCount    = 0   # install beyond window
+$unknownCount  = 0   # no date/version available
+$vulnCount     = 0   # known-vulnerable version detected
+$vulnDetails   = [System.Collections.Generic.List[string]]::new()
+$staleDetails  = [System.Collections.Generic.List[string]]::new()
+
+$today = Get-Date
+
+foreach ($app in $allApps) {
+    $name    = $app.DisplayName
+    $version = $app.DisplayVersion
+    $dateStr = $app.InstallDate
+
+    # ---- Phase 2: Check against known-vulnerabilities.json ----
+    $matchedVuln = $null
+    if ($knownVulns.Count -gt 0 -and $version) {
+        foreach ($vuln in $knownVulns) {
+            if ($name -match $vuln.registry_pattern) {
+                $cmp = Compare-AppVersion $version $vuln.vulnerable_below
+                if ($null -ne $cmp -and $cmp -lt 0) {
+                    $matchedVuln = $vuln
+                }
+                break  # first matching pattern wins
+            }
+        }
+    }
+
+    if ($matchedVuln) {
+        $vulnCount++
+        $sev = $matchedVuln.severity.ToUpper()
+        $detail = "$name v$version < $($matchedVuln.vulnerable_below) [$sev] ($($matchedVuln.cve))"
+        $vulnDetails.Add($detail)
+        continue
+    }
+
+    # ---- Phase 1: Age-based check using InstallDate ----
+    $installDate = $null
+    if ($dateStr) {
+        # Registry InstallDate is typically YYYYMMDD
+        if ($dateStr -match '^\d{8}$') {
+            try { $installDate = [datetime]::ParseExact($dateStr, "yyyyMMdd", $null) } catch { }
+        } elseif ($dateStr -match '^\d{1,2}/\d{1,2}/\d{4}$') {
+            try { $installDate = [datetime]::Parse($dateStr) } catch { }
+        }
+    }
+
+    if (-not $installDate -and -not $version) {
+        $unknownCount++
+        continue
+    }
+
+    if ($installDate) {
+        $ageDays = ($today - $installDate).Days
+        if ($ageDays -le 30) {
+            $currentCount++
+        } elseif ($ageDays -le 90) {
+            $staleCount++
+            $staleDetails.Add("$name v$version - installed $ageDays days ago")
+        } else {
+            $staleCount++
+            $staleDetails.Add("$name v$version - installed $ageDays days ago (>90d)")
+        }
+    } else {
+        # Has version but no install date - cannot determine age
+        $unknownCount++
+    }
+}
+
+# ---- 80.3 Known Vulnerable Applications ----
+if ($knownVulns.Count -gt 0) {
+    if ($vulnCount -eq 0) {
+        Add-Result "80.3" "No Known Vulnerable App Versions" "PASS" "All installed apps are above minimum safe versions in vulnerability database ($($knownVulns.Count) entries checked)" "CE+"
+    } else {
+        $topVulns = if ($vulnDetails.Count -le $Script:MaxDisplayedItems) { $vulnDetails -join "; " } else { ($vulnDetails[0..($Script:MaxDisplayedItems - 1)] -join "; ") + " ... and $($vulnDetails.Count - $Script:MaxDisplayedItems) more" }
+        Add-Result "80.3" "No Known Vulnerable App Versions" "FAIL" "$vulnCount app(s) below minimum safe version: $topVulns" "CE+"
+    }
+}
+
+# ---- 80.4 Critical/High Vulnerability Patch Window (14 days) ----
+if ($vulnCount -gt 0) {
+    $critVulns = $vulnDetails | Select-Object -First $Script:MaxDisplayedItems
+    $critList  = $critVulns -join "; "
+    Add-Result "80.4" "Critical/High Patched Within 14 Days" "FAIL" "$vulnCount vulnerable app(s) require immediate update: $critList" "CE+"
+} elseif ($knownVulns.Count -gt 0) {
+    Add-Result "80.4" "Critical/High Patched Within 14 Days" "PASS" "No critical/high vulnerabilities detected in installed applications" "CE+"
+}
+
+# ---- 80.5 General Patch Currency (30-day window) ----
+if ($staleCount -eq 0 -and $totalApps -gt 0) {
+    Add-Result "80.5" "App Installs Within 30-Day Window" "PASS" "All $currentCount datable apps installed within last 30 days" "CE+"
+} elseif ($staleCount -gt 0) {
+    $topStale = if ($staleDetails.Count -le $Script:MaxDisplayedItems) { $staleDetails -join "; " } else { ($staleDetails[0..($Script:MaxDisplayedItems - 1)] -join "; ") + " ... and $($staleDetails.Count - $Script:MaxDisplayedItems) more" }
+    $stalePct = if ($totalApps -gt 0) { [math]::Round(($staleCount / $totalApps) * 100, 0) } else { 0 }
+    $s = if ($stalePct -le 10) { "WARN" } else { "FAIL" }
+    Add-Result "80.5" "App Installs Within 30-Day Window" $s "$staleCount of $totalApps apps installed >30 days ago ($stalePct%): $topStale" "CE+"
+}
+
+# ---- 80.6 Apps With No Version/Date (manual review) ----
+if ($unknownCount -gt 0) {
+    $unknownPct = if ($totalApps -gt 0) { [math]::Round(($unknownCount / $totalApps) * 100, 0) } else { 0 }
+    Add-Result "80.6" "Apps Without Date/Version Data" "INFO" "$unknownCount of $totalApps apps ($unknownPct%) have no install date or version - manual patch review recommended" "CE+"
+} else {
+    Add-Result "80.6" "Apps Without Date/Version Data" "PASS" "All $totalApps apps have version and/or date information" "CE+"
+}
+
+# ---- 80.7 Overall Application Patch Currency ----
+$overallStatus = "PASS"
+$overallDetail = "$totalApps apps: $currentCount current"
+if ($vulnCount -gt 0)  { $overallStatus = "FAIL"; $overallDetail += ", $vulnCount VULNERABLE" }
+if ($staleCount -gt 0) {
+    if ($overallStatus -ne "FAIL") { $overallStatus = "WARN" }
+    $overallDetail += ", $staleCount stale (>30d)"
+}
+if ($unknownCount -gt 0) { $overallDetail += ", $unknownCount unknown" }
+$overallDetail += " | Thresholds: 14d critical/high, 30d other (CE5)"
+Add-Result "80.7" "Overall App Patch Currency" $overallStatus $overallDetail "CE+"
+
+# ============================================================
 #  CLEAN UP
 # ============================================================
 if (Test-Path $SecCfg) { Remove-Item $SecCfg -Force -ErrorAction SilentlyContinue }
@@ -5131,6 +5337,13 @@ $extLines = @(
     "    79. CIS L1 WiFi/User Templates   (CIS L1 18.11/19.7)"
 )
 foreach ($l in $extLines) { Write-ReportLine $l }
+
+Write-ReportLine ""
+Write-ReportLine "  Application Patch Currency:" "White"
+$patchLines = @(
+    "    80. App Patch Currency            (CE+ | CE5 | Vulnerability DB)"
+)
+foreach ($l in $patchLines) { Write-ReportLine $l }
 
 # ============================================================
 #  CSV EXPORT

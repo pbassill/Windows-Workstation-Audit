@@ -1,0 +1,202 @@
+[
+  {
+    "app": "Google Chrome",
+    "registry_pattern": "Google Chrome",
+    "vulnerable_below": "136.0.7103.49",
+    "severity": "critical",
+    "cve": "CVE-2025-4664",
+    "updated": "2025-05-14"
+  },
+  {
+    "app": "Mozilla Firefox",
+    "registry_pattern": "Mozilla Firefox",
+    "vulnerable_below": "138.0",
+    "severity": "critical",
+    "cve": "CVE-2025-2857",
+    "updated": "2025-04-01"
+  },
+  {
+    "app": "Mozilla Firefox ESR",
+    "registry_pattern": "Mozilla Firefox.*ESR",
+    "vulnerable_below": "128.10",
+    "severity": "critical",
+    "cve": "CVE-2025-2857",
+    "updated": "2025-04-01"
+  },
+  {
+    "app": "Microsoft Edge",
+    "registry_pattern": "Microsoft Edge",
+    "vulnerable_below": "136.0.3240.50",
+    "severity": "high",
+    "cve": "CVE-2025-29834",
+    "updated": "2025-05-15"
+  },
+  {
+    "app": "Adobe Acrobat Reader DC",
+    "registry_pattern": "Adobe Acrobat.*Reader",
+    "vulnerable_below": "25.001.20467",
+    "severity": "critical",
+    "cve": "CVE-2025-27174",
+    "updated": "2025-03-11"
+  },
+  {
+    "app": "Adobe Acrobat DC",
+    "registry_pattern": "Adobe Acrobat(?!.*Reader)",
+    "vulnerable_below": "25.001.20467",
+    "severity": "critical",
+    "cve": "CVE-2025-27174",
+    "updated": "2025-03-11"
+  },
+  {
+    "app": "Java Runtime Environment 8",
+    "registry_pattern": "Java 8 Update",
+    "vulnerable_below": "8.0.4410.10",
+    "severity": "high",
+    "cve": "CVE-2025-21587",
+    "updated": "2025-04-15"
+  },
+  {
+    "app": "Java SE Development Kit",
+    "registry_pattern": "Java.*Development Kit",
+    "vulnerable_below": "24.0.1",
+    "severity": "high",
+    "cve": "CVE-2025-21587",
+    "updated": "2025-04-15"
+  },
+  {
+    "app": "7-Zip",
+    "registry_pattern": "7-Zip",
+    "vulnerable_below": "24.09",
+    "severity": "critical",
+    "cve": "CVE-2025-0411",
+    "updated": "2025-01-25"
+  },
+  {
+    "app": "PuTTY",
+    "registry_pattern": "PuTTY",
+    "vulnerable_below": "0.82",
+    "severity": "critical",
+    "cve": "CVE-2024-31497",
+    "updated": "2024-04-15"
+  },
+  {
+    "app": "Zoom Workplace",
+    "registry_pattern": "Zoom",
+    "vulnerable_below": "6.4.0",
+    "severity": "high",
+    "cve": "CVE-2025-0147",
+    "updated": "2025-01-14"
+  },
+  {
+    "app": "VLC Media Player",
+    "registry_pattern": "VLC media player",
+    "vulnerable_below": "3.0.21",
+    "severity": "high",
+    "cve": "CVE-2024-46461",
+    "updated": "2024-11-28"
+  },
+  {
+    "app": "WinRAR",
+    "registry_pattern": "WinRAR",
+    "vulnerable_below": "7.10",
+    "severity": "high",
+    "cve": "CVE-2025-31334",
+    "updated": "2025-04-02"
+  },
+  {
+    "app": "FileZilla Client",
+    "registry_pattern": "FileZilla Client",
+    "vulnerable_below": "3.68.0",
+    "severity": "high",
+    "cve": "CVE-2024-46981",
+    "updated": "2024-08-20"
+  },
+  {
+    "app": "Notepad++",
+    "registry_pattern": "Notepad\\+\\+",
+    "vulnerable_below": "8.7.6",
+    "severity": "high",
+    "cve": "CVE-2024-56519",
+    "updated": "2025-01-10"
+  },
+  {
+    "app": "Python 3",
+    "registry_pattern": "Python 3",
+    "vulnerable_below": "3.13.3",
+    "severity": "high",
+    "cve": "CVE-2025-0938",
+    "updated": "2025-04-08"
+  },
+  {
+    "app": "Node.js",
+    "registry_pattern": "Node\\.js",
+    "vulnerable_below": "22.15.0",
+    "severity": "high",
+    "cve": "CVE-2025-23085",
+    "updated": "2025-03-11"
+  },
+  {
+    "app": "Git for Windows",
+    "registry_pattern": "Git",
+    "vulnerable_below": "2.49.0",
+    "severity": "high",
+    "cve": "CVE-2025-23040",
+    "updated": "2025-03-12"
+  },
+  {
+    "app": "KeePass",
+    "registry_pattern": "KeePass",
+    "vulnerable_below": "2.57.1",
+    "severity": "critical",
+    "cve": "CVE-2023-32784",
+    "updated": "2024-06-01"
+  },
+  {
+    "app": "Visual Studio Code",
+    "registry_pattern": "Microsoft Visual Studio Code",
+    "vulnerable_below": "1.99.0",
+    "severity": "high",
+    "cve": "CVE-2025-21264",
+    "updated": "2025-03-12"
+  },
+  {
+    "app": "LibreOffice",
+    "registry_pattern": "LibreOffice",
+    "vulnerable_below": "25.2.2",
+    "severity": "high",
+    "cve": "CVE-2025-1080",
+    "updated": "2025-03-04"
+  },
+  {
+    "app": "Wireshark",
+    "registry_pattern": "Wireshark",
+    "vulnerable_below": "4.4.5",
+    "severity": "high",
+    "cve": "CVE-2025-2476",
+    "updated": "2025-03-19"
+  },
+  {
+    "app": "Citrix Workspace",
+    "registry_pattern": "Citrix Workspace",
+    "vulnerable_below": "2402.10",
+    "severity": "critical",
+    "cve": "CVE-2024-7889",
+    "updated": "2024-11-12"
+  },
+  {
+    "app": "TeamViewer",
+    "registry_pattern": "TeamViewer",
+    "vulnerable_below": "15.62.0",
+    "severity": "high",
+    "cve": "CVE-2024-7479",
+    "updated": "2024-09-25"
+  },
+  {
+    "app": "Foxit PDF Reader",
+    "registry_pattern": "Foxit.*Reader",
+    "vulnerable_below": "2024.4.2",
+    "severity": "critical",
+    "cve": "CVE-2024-49576",
+    "updated": "2025-01-07"
+  }
+]
