@@ -1,0 +1,63 @@
+[
+  {
+    "_comment": "Example 1 - Registry check with equality operator. Verifies the screen saver idle timeout is set to 900 seconds (15 minutes) or less via Group Policy. Adjust 'expected' and 'operator' to match your organization's policy.",
+    "id": "C.1",
+    "description": "Screen saver timeout must be set to 900 seconds (15 min) or less",
+    "type": "registry",
+    "framework": "Custom",
+    "severity": "Medium",
+    "path": "HKCU:\\Software\\Policies\\Microsoft\\Windows\\Control Panel\\Desktop",
+    "name": "ScreenSaveTimeOut",
+    "expected": "900",
+    "operator": "le",
+    "remediation": "GPO: User Config > Admin Templates > Control Panel > Personalization > Screen saver timeout = 900 or less"
+  },
+  {
+    "_comment": "Example 2 - Service check. Ensures a corporate VPN client service is installed, running, and set to start automatically. Change 'service_name' to match your VPN product (e.g., PanGPS, CiscoAnyConnect, ZscalerTunnel).",
+    "id": "C.2",
+    "description": "Corporate VPN client service must be running",
+    "type": "service",
+    "framework": "Custom",
+    "severity": "High",
+    "service_name": "PanGPS",
+    "expected_status": "Running",
+    "expected_startup": "Automatic",
+    "remediation": "Install the GlobalProtect VPN client and ensure the PanGPS service is set to Automatic and Started"
+  },
+  {
+    "_comment": "Example 3 - File existence check. Confirms that an endpoint detection and response (EDR) agent is installed by looking for its binary on disk. Update 'file_path' to match your EDR product.",
+    "id": "C.3",
+    "description": "Endpoint detection agent must be installed",
+    "type": "file_exists",
+    "framework": "CE+",
+    "severity": "Critical",
+    "file_path": "C:\\Program Files\\CrowdStrike\\CSFalconService.exe",
+    "remediation": "Deploy the CrowdStrike Falcon agent via SCCM or your endpoint management tool"
+  },
+  {
+    "_comment": "Example 4 - Registry 'not_exists' check. Ensures that no proxy bypass list is configured, which could allow users to circumvent web filtering. The 'not_exists' operator passes when the named value is absent from the registry path.",
+    "id": "C.4",
+    "description": "Proxy bypass list must not be configured",
+    "type": "registry",
+    "framework": "Custom",
+    "severity": "High",
+    "path": "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings",
+    "name": "ProxyOverride",
+    "expected": null,
+    "operator": "not_exists",
+    "remediation": "Remove HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings\\ProxyOverride or enforce via GPO"
+  },
+  {
+    "_comment": "Example 5 - Numeric comparison registry check using 'ge' (greater-than-or-equal). Verifies the Security event log is configured to retain at least 32768 KB (32 MB). Use 'ge', 'le', 'gt', or 'lt' for numeric comparisons.",
+    "id": "C.5",
+    "description": "Security event log maximum size must be at least 32768 KB",
+    "type": "registry",
+    "framework": "CIS",
+    "severity": "Medium",
+    "path": "HKLM:\\Software\\Policies\\Microsoft\\Windows\\EventLog\\Security",
+    "name": "MaxSize",
+    "expected": 32768,
+    "operator": "ge",
+    "remediation": "GPO: Computer Config > Admin Templates > Windows Components > Event Log Service > Security > Maximum Log Size = 32768 KB or greater"
+  }
+]
