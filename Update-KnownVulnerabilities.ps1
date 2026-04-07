@@ -563,7 +563,7 @@ $TrackedApps = @(
     }
     @{
         app              = "Eclipse IDE"
-        registry_pattern = "Eclipse"
+        registry_pattern = "Eclipse IDE"
         keyword          = "eclipse ide"
         cpe_patterns     = @("eclipse:eclipse_ide")
     }
@@ -581,13 +581,13 @@ $TrackedApps = @(
     }
     @{
         app              = "HashiCorp Packer"
-        registry_pattern = "Packer"
+        registry_pattern = "HashiCorp Packer"
         keyword          = "hashicorp packer"
         cpe_patterns     = @("hashicorp:packer")
     }
     @{
         app              = "HashiCorp Vault"
-        registry_pattern = "Vault"
+        registry_pattern = "HashiCorp Vault"
         keyword          = "hashicorp vault"
         cpe_patterns     = @("hashicorp:vault")
     }
