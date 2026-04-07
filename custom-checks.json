@@ -31,8 +31,8 @@
     "type": "file_exists",
     "framework": "CE+",
     "severity": "Critical",
-    "file_path": "C:\\Program Files\\CrowdStrike\\CSFalconService.exe",
-    "remediation": "Deploy the CrowdStrike Falcon agent via SCCM or your endpoint management tool"
+    "file_path": "C:\\Program Files\\Pulse\\PulseService.exe",
+    "remediation": "Deploy the Pulse agent via SCCM or your endpoint management tool"
   },
   {
     "_comment": "Example 4 - Registry 'not_exists' check. Ensures that no proxy bypass list is configured, which could allow users to circumvent web filtering. The 'not_exists' operator passes when the named value is absent from the registry path.",
