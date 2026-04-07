@@ -710,10 +710,10 @@ function Invoke-NvdApiQuery {
         }
 
         if ($null -eq $totalResults -and $response.PSObject.Properties['totalResults']) {
-            $totalResults = $response.totalResults
+            $totalResults = [int]$response.totalResults
         }
 
-        if ($response.PSObject.Properties['vulnerabilities'] -and $response.vulnerabilities) {
+        if ($response.PSObject.Properties['vulnerabilities'] -and $response.vulnerabilities.Count -gt 0) {
             foreach ($v in $response.vulnerabilities) { $allVulns.Add($v) }
         }
 
@@ -727,7 +727,7 @@ function Invoke-NvdApiQuery {
 
     # Return a synthetic response object matching the original shape
     return @{
-        totalResults    = if ($null -ne $totalResults) { $totalResults } else { 0 }
+        totalResults    = if ($null -ne $totalResults) { $totalResults } else { $allVulns.Count }
         vulnerabilities = $allVulns
     }
 }
