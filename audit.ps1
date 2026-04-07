@@ -4807,7 +4807,11 @@ foreach ($app in $allApps) {
     if ($matchedVuln) {
         $vulnCount++
         $sev = $matchedVuln.severity.ToUpper()
-        $detail = "$name v$version < $($matchedVuln.vulnerable_below) [$sev] ($($matchedVuln.cve))"
+        $kevTag = ""
+        if ($matchedVuln.PSObject.Properties['kev'] -and $matchedVuln.kev -eq $true) {
+            $kevTag = " ** ACTIVELY EXPLOITED (KEV) **"
+        }
+        $detail = "$name v$version < $($matchedVuln.vulnerable_below) [$sev] ($($matchedVuln.cve))${kevTag}"
         $vulnDetails.Add($detail)
         continue
     }

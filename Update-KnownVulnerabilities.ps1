@@ -1,10 +1,14 @@
 <#
 .SYNOPSIS
-    Generates/updates known-vulnerabilities.json from the NIST NVD API.
+    Generates/updates known-vulnerabilities.json from the NIST NVD API and
+    CISA Known Exploited Vulnerabilities (KEV) catalog.
 
 .DESCRIPTION
     Queries the NIST National Vulnerability Database (NVD) API v2.0 to find the
-    latest critical and high severity CVEs for common desktop applications.
+    latest critical and high severity CVEs for common desktop applications, and
+    cross-references results with the CISA KEV catalog to flag vulnerabilities
+    that are known to be actively exploited in the wild.
+
     Produces the known-vulnerabilities.json companion file used by audit.ps1
     Section 80 (Application Patch Currency).
 
@@ -15,6 +19,10 @@
       severity         - CVE severity (critical or high)
       cve              - CVE identifier (e.g. CVE-2025-1234)
       updated          - Date the entry was last checked (YYYY-MM-DD)
+      kev              - Whether the CVE appears in the CISA KEV catalog
+      kev_due_date     - CISA remediation due date (if in KEV, otherwise null)
+      kev_ransomware   - Whether the CVE is associated with ransomware campaigns
+                         (if in KEV, otherwise null)
 
     When an existing known-vulnerabilities.json is present, the script merges
     results: NVD data replaces an entry only when it specifies a higher
@@ -24,6 +32,10 @@
     Optional NVD API key for higher rate limits (50 req/30 s instead of
     5 req/30 s).  Request a free key at:
     https://nvd.nist.gov/developers/request-an-api-key
+
+.PARAMETER SkipKev
+    Skip the CISA KEV catalog lookup.  Useful when working offline or when
+    the KEV feed is temporarily unavailable.
 
 .PARAMETER OutputPath
     Output file path. Defaults to known-vulnerabilities.json in the script
@@ -37,11 +49,15 @@
 
 .EXAMPLE
     .\Update-KnownVulnerabilities.ps1 -OutputPath "C:\audit\known-vulnerabilities.json"
+
+.EXAMPLE
+    .\Update-KnownVulnerabilities.ps1 -SkipKev
 #>
 
 [CmdletBinding()]
 param(
     [string]$NvdApiKey,
+    [switch]$SkipKev,
     [string]$OutputPath
 )
 
@@ -60,6 +76,9 @@ if (-not $OutputPath) {
 
 # NVD API v2.0 base URL
 $NvdApiBase = "https://services.nvd.nist.gov/rest/json/cves/2.0"
+
+# CISA Known Exploited Vulnerabilities (KEV) catalog URL
+$KevCatalogUrl = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
 
 # Rate-limit delay: 5 req/30 s without key, 50 req/30 s with key
 $RequestDelaySec = if ($NvdApiKey) { 1 } else { 7 }
@@ -679,6 +698,39 @@ function Compare-VersionStrings {
     }
 }
 
+function Get-KevCatalog {
+    <#
+    .SYNOPSIS
+        Download and parse the CISA Known Exploited Vulnerabilities (KEV)
+        catalog.  Returns a hashtable keyed by CVE ID for fast lookups.
+    #>
+    Write-Host "Downloading CISA KEV catalog... " -NoNewline
+    try {
+        $response = Invoke-RestMethod -Uri $KevCatalogUrl -TimeoutSec 60 -ErrorAction Stop
+        $kevLookup = @{}
+        if ($response.PSObject.Properties['vulnerabilities'] -and $response.vulnerabilities) {
+            foreach ($entry in $response.vulnerabilities) {
+                $cveId = $null
+                if ($entry.PSObject.Properties['cveID']) { $cveId = $entry.cveID }
+                if ($cveId) {
+                    $kevLookup[$cveId] = @{
+                        due_date   = if ($entry.PSObject.Properties['dueDate']) { $entry.dueDate } else { $null }
+                        ransomware = if ($entry.PSObject.Properties['knownRansomwareCampaignUse']) {
+                            $entry.knownRansomwareCampaignUse -eq 'Known'
+                        } else { $false }
+                    }
+                }
+            }
+        }
+        Write-Host "$($kevLookup.Count) entries loaded." -ForegroundColor Green
+        return $kevLookup
+    } catch {
+        Write-Warning "Failed to download KEV catalog: $($_.Exception.Message)"
+        Write-Warning "KEV enrichment will be skipped."
+        return @{}
+    }
+}
+
 function Invoke-NvdApiQuery {
     <#
     .SYNOPSIS
@@ -892,8 +944,16 @@ Write-Host "  Output  : $OutputPath"
 Write-Host "  Apps    : $($TrackedApps.Count)"
 Write-Host "  API Key : $(if ($NvdApiKey) { 'Yes (high rate limit)' } else { 'No  (5 req / 30 s)' })"
 Write-Host "  Delay   : ${RequestDelaySec}s between requests"
+Write-Host "  KEV     : $(if ($SkipKev) { 'Skipped (-SkipKev)' } else { 'Enabled' })"
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
+
+# ---- Download CISA KEV catalog for cross-referencing ----
+$kevLookup = @{}
+if (-not $SkipKev) {
+    $kevLookup = Get-KevCatalog
+    Write-Host ""
+}
 
 # ---- Load existing entries for merge / fallback ----
 $existingByApp = @{}
@@ -942,6 +1002,9 @@ for ($i = 0; $i -lt $TrackedApps.Count; $i++) {
         }
 
         if ($useNew) {
+            # Look up KEV status for the chosen CVE
+            $kevInfo = $kevLookup[$best.cve]
+            $kevTag  = if ($kevInfo) { " ** KEV **" } else { "" }
             $results.Add([ordered]@{
                 app              = $tracked.app
                 registry_pattern = $tracked.registry_pattern
@@ -949,10 +1012,15 @@ for ($i = 0; $i -lt $TrackedApps.Count; $i++) {
                 severity         = $best.severity
                 cve              = $best.cve
                 updated          = (Get-Date -Format "yyyy-MM-dd")
+                kev              = [bool]($null -ne $kevInfo)
+                kev_due_date     = if ($kevInfo) { $kevInfo.due_date } else { $null }
+                kev_ransomware   = if ($kevInfo) { $kevInfo.ransomware } else { $null }
             })
             $cUpdated++
-            Write-Host "$($best.cve) [$($best.severity)] < $($best.vulnerable_below)" -ForegroundColor Yellow
+            Write-Host "$($best.cve) [$($best.severity)] < $($best.vulnerable_below)${kevTag}" -ForegroundColor Yellow
         } else {
+            # Refresh KEV fields even when keeping the existing NVD data
+            $kevInfo = $kevLookup[$existingEntry.cve]
             $results.Add([ordered]@{
                 app              = $existingEntry.app
                 registry_pattern = $existingEntry.registry_pattern
@@ -960,12 +1028,16 @@ for ($i = 0; $i -lt $TrackedApps.Count; $i++) {
                 severity         = $existingEntry.severity
                 cve              = $existingEntry.cve
                 updated          = $existingEntry.updated
+                kev              = [bool]($null -ne $kevInfo)
+                kev_due_date     = if ($kevInfo) { $kevInfo.due_date } else { $null }
+                kev_ransomware   = if ($kevInfo) { $kevInfo.ransomware } else { $null }
             })
             $cKept++
             Write-Host "kept existing ($($existingEntry.cve) < $($existingEntry.vulnerable_below))" -ForegroundColor DarkGray
         }
     } elseif ($existingEntry) {
-        # No NVD match -- preserve the existing entry
+        # No NVD match -- preserve the existing entry, refresh KEV fields
+        $kevInfo = $kevLookup[$existingEntry.cve]
         $results.Add([ordered]@{
             app              = $existingEntry.app
             registry_pattern = $existingEntry.registry_pattern
@@ -973,6 +1045,9 @@ for ($i = 0; $i -lt $TrackedApps.Count; $i++) {
             severity         = $existingEntry.severity
             cve              = $existingEntry.cve
             updated          = $existingEntry.updated
+            kev              = [bool]($null -ne $kevInfo)
+            kev_due_date     = if ($kevInfo) { $kevInfo.due_date } else { $null }
+            kev_ransomware   = if ($kevInfo) { $kevInfo.ransomware } else { $null }
         })
         $cKept++
         Write-Host "no NVD match -- kept existing ($($existingEntry.cve))" -ForegroundColor DarkGray
@@ -1010,6 +1085,7 @@ try {
     $validMsg = "WARNING: Output file failed JSON validation: $_"
 }
 
+$cKev = @($results | Where-Object { $_.kev -eq $true }).Count
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "  Complete                               " -ForegroundColor Cyan
@@ -1017,6 +1093,7 @@ Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "  Updated : $cUpdated entries (new/improved from NVD)"
 Write-Host "  Kept    : $cKept entries (existing preserved)"
 Write-Host "  Missing : $cMissing entries (no data available)"
+Write-Host "  KEV     : $cKev entries flagged as actively exploited (CISA KEV)"
 Write-Host "  Total   : $($results.Count) entries written"
 Write-Host "  Output  : $OutputPath"
 Write-Host "  $validMsg"
