@@ -4707,15 +4707,26 @@ if (Test-Path $vulnDataPath) {
 }
 
 # ---- Helper: compare version strings (dotted numeric) ----
+$Script:MaxDisplayedItems = 5
 function Compare-AppVersion {
     param([string]$Installed, [string]$Required)
     try {
         # Strip non-numeric prefixes/suffixes, keep dotted numeric core
-        $cleanInstalled = ($Installed -replace '[^0-9.]', '').TrimEnd('.')
-        $cleanRequired  = ($Required  -replace '[^0-9.]', '').TrimEnd('.')
+        $cleanInstalled = ($Installed -replace '[^0-9.]', '').TrimEnd('.').TrimStart('.')
+        $cleanRequired  = ($Required  -replace '[^0-9.]', '').TrimEnd('.').TrimStart('.')
         if (-not $cleanInstalled -or -not $cleanRequired) { return $null }
-        $iParts = $cleanInstalled.Split('.') | ForEach-Object { [long]$_ }
-        $rParts = $cleanRequired.Split('.')  | ForEach-Object { [long]$_ }
+        # Remove consecutive dots from edge cases
+        $cleanInstalled = $cleanInstalled -replace '\.{2,}', '.'
+        $cleanRequired  = $cleanRequired  -replace '\.{2,}', '.'
+        $iParts = $cleanInstalled.Split('.') | Where-Object { $_ -ne '' } | ForEach-Object {
+            $n = 0; if ([long]::TryParse($_, [ref]$n)) { $n } else { return $null }
+        }
+        $rParts = $cleanRequired.Split('.') | Where-Object { $_ -ne '' } | ForEach-Object {
+            $n = 0; if ([long]::TryParse($_, [ref]$n)) { $n } else { return $null }
+        }
+        if ($null -eq $iParts -or $null -eq $rParts) { return $null }
+        $iParts = @($iParts)
+        $rParts = @($rParts)
         $maxLen = [math]::Max($iParts.Count, $rParts.Count)
         for ($i = 0; $i -lt $maxLen; $i++) {
             $iv = if ($i -lt $iParts.Count) { $iParts[$i] } else { 0 }
@@ -4743,7 +4754,7 @@ foreach ($rp in $regPaths) {
         if ($items) { $installedApps += $items }
     } catch { }
 }
-# De-duplicate by DisplayName (keep first occurrence which is 64-bit)
+# De-duplicate by DisplayName (keep first occurrence from enumeration order)
 $installedApps = $installedApps | Sort-Object DisplayName -Unique
 
 # ---- Enumerate AppX / MSIX packages ----
@@ -4838,14 +4849,14 @@ if ($knownVulns.Count -gt 0) {
     if ($vulnCount -eq 0) {
         Add-Result "80.3" "No Known Vulnerable App Versions" "PASS" "All installed apps are above minimum safe versions in vulnerability database ($($knownVulns.Count) entries checked)" "CE+"
     } else {
-        $topVulns = if ($vulnDetails.Count -le 5) { $vulnDetails -join "; " } else { ($vulnDetails[0..4] -join "; ") + " ... and $($vulnDetails.Count - 5) more" }
+        $topVulns = if ($vulnDetails.Count -le $Script:MaxDisplayedItems) { $vulnDetails -join "; " } else { ($vulnDetails[0..($Script:MaxDisplayedItems - 1)] -join "; ") + " ... and $($vulnDetails.Count - $Script:MaxDisplayedItems) more" }
         Add-Result "80.3" "No Known Vulnerable App Versions" "FAIL" "$vulnCount app(s) below minimum safe version: $topVulns" "CE+"
     }
 }
 
 # ---- 80.4 Critical/High Vulnerability Patch Window (14 days) ----
 if ($vulnCount -gt 0) {
-    $critVulns = $vulnDetails | Select-Object -First 10
+    $critVulns = $vulnDetails | Select-Object -First $Script:MaxDisplayedItems
     $critList  = $critVulns -join "; "
     Add-Result "80.4" "Critical/High Patched Within 14 Days" "FAIL" "$vulnCount vulnerable app(s) require immediate update: $critList" "CE+"
 } elseif ($knownVulns.Count -gt 0) {
@@ -4856,7 +4867,7 @@ if ($vulnCount -gt 0) {
 if ($staleCount -eq 0 -and $totalApps -gt 0) {
     Add-Result "80.5" "App Installs Within 30-Day Window" "PASS" "All $currentCount datable apps installed within last 30 days" "CE+"
 } elseif ($staleCount -gt 0) {
-    $topStale = if ($staleDetails.Count -le 5) { $staleDetails -join "; " } else { ($staleDetails[0..4] -join "; ") + " ... and $($staleDetails.Count - 5) more" }
+    $topStale = if ($staleDetails.Count -le $Script:MaxDisplayedItems) { $staleDetails -join "; " } else { ($staleDetails[0..($Script:MaxDisplayedItems - 1)] -join "; ") + " ... and $($staleDetails.Count - $Script:MaxDisplayedItems) more" }
     $stalePct = if ($totalApps -gt 0) { [math]::Round(($staleCount / $totalApps) * 100, 0) } else { 0 }
     $s = if ($stalePct -le 10) { "WARN" } else { "FAIL" }
     Add-Result "80.5" "App Installs Within 30-Day Window" $s "$staleCount of $totalApps apps installed >30 days ago ($stalePct%): $topStale" "CE+"
