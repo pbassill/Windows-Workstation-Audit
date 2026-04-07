@@ -5025,8 +5025,65 @@ $ncscScore = if ($ncscCount -gt 0) {
 # ---- Risk rating ----
 $overallRisk = Get-RiskRating $score
 
+# ---- Severity-weighted score ----
+$weightedNumerator   = 0.0
+$weightedDenominator = 0.0
+foreach ($r in $Results) {
+    if ($r.Status -eq "INFO") { continue }
+    $w = Get-SeverityWeight $r.ID
+    $weightedDenominator += $w
+    if ($r.Status -eq "PASS") { $weightedNumerator += $w }
+}
+$weightedScore = if ($weightedDenominator -gt 0) {
+    [math]::Round(($weightedNumerator / $weightedDenominator) * 100, 1)
+} else { 0 }
+$weightedRisk = Get-RiskRating $weightedScore
+
+# ---- Category-level (section) scoring ----
+$sectionScores = @{}
+foreach ($r in $Results) {
+    if ($r.Status -eq "INFO") { continue }
+    # Extract section number: "1.1" -> "1", "26A.1" -> "26A", "80.7" -> "80"
+    $secNum = ($r.ID -split '\.')[0]
+    if (-not $sectionScores.ContainsKey($secNum)) {
+        $sectionScores[$secNum] = @{ Pass = 0; Fail = 0; Warn = 0; Total = 0 }
+    }
+    $sectionScores[$secNum].Total++
+    switch ($r.Status) {
+        "PASS" { $sectionScores[$secNum].Pass++ }
+        "FAIL" { $sectionScores[$secNum].Fail++ }
+        "WARN" { $sectionScores[$secNum].Warn++ }
+    }
+}
+
+# ---- Gather richer device context ----
+$osInfo = Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue
+$biosInfo = Get-CimInstance Win32_BIOS -ErrorAction SilentlyContinue
+$tpmInfo = try { Get-CimInstance -Namespace "root\cimv2\Security\MicrosoftTpm" -ClassName Win32_Tpm -ErrorAction Stop } catch { $null }
+$secureBoot = try { Confirm-SecureBootUEFI -ErrorAction Stop } catch { "Unknown" }
+$lastReboot = if ($osInfo) { $osInfo.LastBootUpTime.ToString("dd MMM yyyy HH:mm:ss") } else { "Unknown" }
+$osEdition = if ($osInfo) { "$($osInfo.Caption) (Build $($osInfo.BuildNumber))" } else { "Unknown" }
+$psVersion = "$($PSVersionTable.PSVersion.Major).$($PSVersionTable.PSVersion.Minor).$($PSVersionTable.PSVersion.Build)"
+$dotnetVer = try { (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full" -ErrorAction Stop).Release } catch { "Unknown" }
+$domainInfo = try { (Get-CimInstance Win32_ComputerSystem -ErrorAction Stop).Domain } catch { "Unknown" }
+$netAdapters = Get-CimInstance Win32_NetworkAdapterConfiguration -ErrorAction SilentlyContinue | Where-Object { $_.IPEnabled -eq $true } | Select-Object -First 3
+$ipAddresses = ($netAdapters | ForEach-Object { $_.IPAddress } | Where-Object { $_ -and $_ -notmatch ":" }) -join ", "
+$tpmVersion = if ($tpmInfo) { $tpmInfo.SpecVersion -replace '\s.*','' } else { "Not detected" }
+$tpmStatus = if ($tpmInfo) { if ($tpmInfo.IsEnabled_InitialValue) { "Enabled" } else { "Disabled" } } else { "Not detected" }
+$secureBootStr = if ($secureBoot -eq $true) { "Enabled" } elseif ($secureBoot -eq $false) { "Disabled" } else { "Unknown" }
+$biosVendor = if ($biosInfo) { "$($biosInfo.Manufacturer) $($biosInfo.SMBIOSBIOSVersion)" } else { "Unknown" }
+
+# ---- Build per-framework score map for reuse ----
+$frameworkScoreMap = @{
+    "CIS"     = @{ Score = $cisL1Score; Pass = $cisL1Pass; Fail = $cisL1Fail; Warn = $cisL1Warn; Total = $cisL1Count; Label = "CIS Level 1" }
+    "CIS-L2"  = @{ Score = $l2Score;    Pass = $cisL2Pass; Fail = $cisL2Fail; Warn = $cisL2Warn; Total = $cisL2Count; Label = "CIS Level 2" }
+    "CE+"     = @{ Score = $ceScore;    Pass = $cePass;    Fail = $ceFail;    Warn = $ceWarn;    Total = $ceCount;    Label = "Cyber Essentials" }
+    "EntraID" = @{ Score = $entraScore; Pass = $entraPass; Fail = $entraFail; Warn = $entraWarn; Total = $entraCount; Label = "Entra ID / M365" }
+    "NCSC"    = @{ Score = $ncscScore;  Pass = $ncscPassCount; Fail = $ncscFailCount; Warn = $ncscWarnCount; Total = $ncscCount; Label = "NCSC Alignment" }
+}
+
 # ============================================================
-#  EXECUTIVE SUMMARY
+#  COMPLIANCE ATTESTATION
 # ============================================================
 Write-Host ""
 $execLines = @(
@@ -5040,6 +5097,26 @@ $execLines = @(
 foreach ($l in $execLines) { Write-ReportLine $l }
 
 Write-Host ""
+Write-Divider "="
+Write-ReportLine "  COMPLIANCE ATTESTATION" "White"
+Write-Divider "-"
+Write-ReportLine ""
+
+foreach ($fwKey in @("CIS","CIS-L2","CE+","NCSC","EntraID")) {
+    $fw = $frameworkScoreMap[$fwKey]
+    if ($fw.Total -eq 0) { continue }
+    $thresh = $Script:ComplianceThresholds[$fwKey]
+    $verdict = if ($fw.Score -ge $thresh.Threshold) { "PASSES" } else { "DOES NOT PASS" }
+    $vColor  = if ($verdict -eq "PASSES") { "Green" } else { "Red" }
+    $attLine = "  $($fw.Label): $verdict  ($($fw.Score)% vs $($thresh.Threshold)% threshold)"
+    Write-Host $attLine -ForegroundColor $vColor
+    Add-Content -Path $ReportPath -Value $attLine
+}
+Write-ReportLine ""
+
+# ============================================================
+#  EXECUTIVE SUMMARY
+# ============================================================
 Write-ReportLine "  EXECUTIVE SUMMARY" "White"
 Write-Divider "-"
 
@@ -5057,10 +5134,59 @@ $barLine = "                      $bar $score%"
 Write-Host $barLine -ForegroundColor $scoreColor
 Add-Content -Path $ReportPath -Value $barLine
 
+# ---- Severity-weighted score ----
+$wLine = "  Weighted Score    : $weightedScore%  (Critical x3, High x2, Medium x1)"
+$wColor = if ($weightedScore -ge 90) { "Green" } elseif ($weightedScore -ge 75) { "Yellow" } else { "Red" }
+Write-Host $wLine -ForegroundColor $wColor
+Add-Content -Path $ReportPath -Value $wLine
+
+$wBar = Get-ProgressBar $weightedScore
+$wBarLine = "                      $wBar $weightedScore%"
+Write-Host $wBarLine -ForegroundColor $wColor
+Add-Content -Path $ReportPath -Value $wBarLine
+
 Write-ReportLine ""
 Write-ReportLine "  Total Checks      : $totalChecks"
 Write-ReportLine ("  Passed            : {0,-6} | Failed : {1,-6} | Warnings : {2,-6} | Info : {3}" -f $passCount, $failCount, $warnCount, $infoCount)
 Write-ReportLine "  Audit Duration    : $DurationStr"
+
+# ---- Top 5 Risks ----
+$failedItems = $Results | Where-Object { $_.Status -eq "FAIL" }
+if ($failedItems.Count -gt 0) {
+    Write-ReportLine ""
+    Write-ReportLine "  TOP 5 RISKS:" "White"
+    # Sort by severity weight descending, take top 5
+    $top5 = $failedItems | Sort-Object { Get-SeverityWeight $_.ID } -Descending | Select-Object -First 5
+    $idx = 1
+    foreach ($r in $top5) {
+        $sev = if ($Script:RemediationData.ContainsKey($r.ID)) { $Script:RemediationData[$r.ID].Severity } else { "Medium" }
+        $topLine = "    $idx. [$sev] [$($r.ID)] $($r.Description)"
+        Write-Host $topLine -ForegroundColor Red
+        Add-Content -Path $ReportPath -Value $topLine
+        $idx++
+    }
+}
+
+# ---- Quick Wins (registry/GPO changes -- low-effort fixes) ----
+$quickWinIDs = $failedItems | Where-Object {
+    $Script:RemediationData.ContainsKey($_.ID) -and
+    ($Script:RemediationData[$_.ID].Remediation -match "Registry|GPO|Run:|Set-MpPreference")
+} | Select-Object -First 5
+if ($quickWinIDs.Count -gt 0) {
+    Write-ReportLine ""
+    Write-ReportLine "  QUICK WINS (easy registry/GPO fixes):" "White"
+    $idx = 1
+    foreach ($r in $quickWinIDs) {
+        $rem = $Script:RemediationData[$r.ID].Remediation
+        $qLine = "    $idx. [$($r.ID)] $($r.Description)"
+        Write-Host $qLine -ForegroundColor Yellow
+        Add-Content -Path $ReportPath -Value $qLine
+        $qDetail = "       Fix: $rem"
+        Write-Host $qDetail -ForegroundColor DarkYellow
+        Add-Content -Path $ReportPath -Value $qDetail
+        $idx++
+    }
+}
 
 # ============================================================
 #  SCORE DASHBOARD
@@ -5107,7 +5233,62 @@ Write-ReportLine "    A WARN on NCSC means CIS-compliant but not yet NCSC-optima
 Write-ReportLine "    length 14 passes CIS but NCSC recommends 15+). See ncsc.gov.uk/collection/passwords"
 
 # ============================================================
-#  DEVICE CONTEXT
+#  CATEGORY-LEVEL SCORECARD
+# ============================================================
+Write-ReportLine ""
+Write-Divider "="
+Write-ReportLine "  SECTION SCORECARD" "White"
+Write-Divider "-"
+Write-ReportLine ""
+
+$secHeader = "  {0,-8} {1,-38} {2,5} {3,5} {4,5} {5,7}" -f "Section", "Name", "Pass", "Fail", "Warn", "Score%"
+Write-ReportLine $secHeader "White"
+Write-ReportLine ("  " + ("-" * 72))
+
+# Section name lookup (abbreviated)
+$sectionNames = @{
+    "1"="Password Policy"; "2"="Account Lockout"; "3"="Remote Desktop"; "4"="Local Accounts";
+    "5"="Windows Firewall"; "6"="Patch Management"; "7"="SMBv1 Protocol"; "8"="AutoRun/AutoPlay";
+    "9"="Insecure Services"; "10"="Admin Shares"; "11"="User Account Control"; "12"="Security Protocols";
+    "13"="Audit Policy"; "14"="Malware Protection"; "15"="BitLocker/Encryption"; "16"="Secure Boot/UEFI";
+    "17"="PowerShell Security"; "18"="Application Control"; "19"="Event Log Config"; "20"="Credential Protection";
+    "21"="Screen Lock/Session"; "22"="Unnecessary Features"; "23"="Network Security"; "24"="Memory/Exploit Protect";
+    "25"="CE Secure Config"; "26"="CE Plus Checks"; "26A"="CE+ Account Separation"; "26B"="CE+ 2FA/MFA";
+    "27"="Entra ID Device"; "28"="Intune/MDM"; "29"="Windows Hello"; "30"="Defender for Endpoint";
+    "31"="M365/Office Security"; "32"="CA & Compliance"; "33"="CIS L2 User Rights"; "34"="CIS L2 Sec Options";
+    "35"="CIS L2 Advanced Audit"; "36"="TLS/SSL Hardening"; "37"="Edge Security"; "38"="Peripheral Control";
+    "39"="Privacy Hardening"; "40"="Remote Assistance"; "41"="DNS Client Security"; "42"="Scheduled Tasks";
+    "43"="MSS Legacy Settings"; "44"="Network Protocol"; "45"="ASR Rules"; "46"="System Exploit Protect";
+    "47"="Kernel DMA Protection"; "48"="LAPS Config"; "49"="Network List Manager"; "50"="Delivery Optimisation";
+    "51"="NTP/Time Security"; "52"="Defender App Guard"; "53"="RPC/DCOM Security"; "54"="Group Policy Infra";
+    "55"="Print Security"; "56"="Windows Copilot/AI"; "57"="File/Reg Permissions"; "58"="Internet Explorer";
+    "59"="Event Forwarding"; "60"="Additional Defender"; "61"="CIS L1 User Rights"; "62"="CIS L1 Sec Options";
+    "63"="CIS L1 Admin System"; "64"="CIS L1 Admin WinCo"; "65"="CIS L1 Services"; "66"="CIS L1 Admin User";
+    "67"="CIS L1 Telemetry"; "68"="CIS L1 Device Guard"; "69"="CIS L1 Logon/Cred"; "70"="CIS L1 Admin Tmpl";
+    "71"="CIS L1 Lockout/Rights"; "72"="CIS L1 FW Logging"; "73"="CIS L1 Audit Policy"; "74"="CIS L1 Personalization";
+    "75"="CIS L1 MSS/Network"; "76"="CIS L1 Printer"; "77"="CIS L1 System Tmpl"; "78"="CIS L1 Win Components";
+    "79"="CIS L1 WiFi/User"; "80"="App Patch Currency"
+}
+
+# Sort sections numerically (handle "26A","26B" etc.)
+$sortedSections = $sectionScores.Keys | Sort-Object {
+    $num = $_ -replace '[A-Za-z]',''
+    $suffix = $_ -replace '[0-9]',''
+    [int]$num * 100 + [int][char[]]($suffix + " ")[0]
+}
+
+foreach ($sec in $sortedSections) {
+    $s = $sectionScores[$sec]
+    $secScore = if ($s.Total -gt 0) { [math]::Round(($s.Pass / $s.Total) * 100, 0) } else { 0 }
+    $secName = if ($sectionNames.ContainsKey($sec)) { $sectionNames[$sec] } else { "Section $sec" }
+    $color = if ($secScore -ge 90) { "Green" } elseif ($secScore -ge 50) { "Yellow" } else { "Red" }
+    $secLine = "  {0,-8} {1,-38} {2,5} {3,5} {4,5} {5,5}%" -f $sec, $secName, $s.Pass, $s.Fail, $s.Warn, $secScore
+    Write-Host $secLine -ForegroundColor $color
+    Add-Content -Path $ReportPath -Value $secLine
+}
+
+# ============================================================
+#  DEVICE CONTEXT (enhanced)
 # ============================================================
 Write-ReportLine ""
 Write-Divider "="
@@ -5115,16 +5296,128 @@ Write-ReportLine "  DEVICE CONTEXT" "White"
 Write-Divider "-"
 Write-ReportLine "  Hostname          : $env:COMPUTERNAME"
 Write-ReportLine "  User              : $env:USERNAME"
+Write-ReportLine "  OS Edition        : $osEdition"
+Write-ReportLine "  Last Reboot       : $lastReboot"
 Write-ReportLine "  Join Type         : $joinType"
+Write-ReportLine "  Domain/Workgroup  : $domainInfo"
 Write-ReportLine "  Tenant            : $($Script:TenantName) ($($Script:TenantID))"
 Write-ReportLine "  MDM Enrolled      : $($Script:MDMEnrolled) $(if ($Script:MDMUrl) {"($($Script:MDMUrl))"} else {''})"
 Write-ReportLine "  PRT Present       : $($Script:PRTPresent)"
 Write-ReportLine "  Device ID         : $($Script:DeviceID)"
+Write-ReportLine "  TPM               : $tpmVersion ($tpmStatus)"
+Write-ReportLine "  Secure Boot       : $secureBootStr"
+Write-ReportLine "  BIOS/UEFI         : $biosVendor"
+Write-ReportLine "  PowerShell        : $psVersion"
+Write-ReportLine "  .NET Release      : $dotnetVer"
+Write-ReportLine "  IP Address(es)    : $ipAddresses"
 
 # ============================================================
-#  PRIORITY REMEDIATION — TOP FAILURES
+#  DELTA / TREND COMPARISON
 # ============================================================
-$failedItems = $Results | Where-Object { $_.Status -eq "FAIL" }
+if ($Script:PreviousData) {
+    Write-ReportLine ""
+    Write-Divider "="
+    Write-ReportLine "  CHANGES SINCE LAST AUDIT" "White"
+    Write-Divider "-"
+    Write-ReportLine ""
+
+    # Build lookup of previous results by ID
+    $prevResults = @{}
+    if ($Script:PreviousData.results) {
+        foreach ($pr in $Script:PreviousData.results) {
+            $prevResults[$pr.ID] = $pr.Status
+        }
+    }
+
+    $newFails    = [System.Collections.Generic.List[string]]::new()
+    $resolved    = [System.Collections.Generic.List[string]]::new()
+    $regressions = [System.Collections.Generic.List[string]]::new()
+
+    foreach ($r in $Results) {
+        $prevStatus = if ($prevResults.ContainsKey($r.ID)) { $prevResults[$r.ID] } else { $null }
+        if ($r.Status -eq "FAIL" -and $prevStatus -ne "FAIL") {
+            if ($null -eq $prevStatus) {
+                $newFails.Add("[$($r.ID)] $($r.Description) (NEW CHECK)")
+            } else {
+                $regressions.Add("[$($r.ID)] $($r.Description) (was $prevStatus, now FAIL)")
+            }
+        }
+        if ($r.Status -eq "PASS" -and $prevStatus -eq "FAIL") {
+            $resolved.Add("[$($r.ID)] $($r.Description) (RESOLVED)")
+        }
+    }
+
+    # Previous overall score
+    $prevScore = if ($Script:PreviousData.summary -and $Script:PreviousData.summary.overall_score) {
+        $Script:PreviousData.summary.overall_score
+    } else { $null }
+
+    if ($null -ne $prevScore) {
+        $delta = $score - $prevScore
+        $arrow = if ($delta -gt 0) { "+" } elseif ($delta -lt 0) { "" } else { "" }
+        $deltaColor = if ($delta -gt 0) { "Green" } elseif ($delta -lt 0) { "Red" } else { "Cyan" }
+        $deltaLine = "  Overall Score: $prevScore% -> $score%  (${arrow}${delta}%)"
+        Write-Host $deltaLine -ForegroundColor $deltaColor
+        Add-Content -Path $ReportPath -Value $deltaLine
+    }
+
+    # Per-framework delta
+    if ($Script:PreviousData.framework_scores) {
+        Write-ReportLine ""
+        Write-ReportLine "  Framework Score Changes:" "White"
+        foreach ($fwKey in @("CIS","CIS-L2","CE+","NCSC","EntraID")) {
+            $fw = $frameworkScoreMap[$fwKey]
+            if ($fw.Total -eq 0) { continue }
+            $prevFwScore = $null
+            foreach ($pfw in $Script:PreviousData.framework_scores) {
+                if ($pfw.framework -eq $fwKey) { $prevFwScore = $pfw.score; break }
+            }
+            if ($null -ne $prevFwScore) {
+                $d = $fw.Score - $prevFwScore
+                $arr = if ($d -gt 0) { "+" } elseif ($d -lt 0) { "" } else { "" }
+                $dColor = if ($d -gt 0) { "Green" } elseif ($d -lt 0) { "Red" } else { "Cyan" }
+                $fwLine = "    $($fw.Label): $prevFwScore% -> $($fw.Score)%  (${arr}${d}%)"
+                Write-Host $fwLine -ForegroundColor $dColor
+                Add-Content -Path $ReportPath -Value $fwLine
+            }
+        }
+    }
+
+    Write-ReportLine ""
+    Write-ReportLine "  Resolved: $($resolved.Count) | New Failures: $($newFails.Count) | Regressions: $($regressions.Count)"
+
+    if ($resolved.Count -gt 0) {
+        Write-ReportLine ""
+        Write-ReportLine "  RESOLVED (previously failed, now passing):" "Green"
+        foreach ($item in $resolved) {
+            $rLine = "    + $item"
+            Write-Host $rLine -ForegroundColor Green
+            Add-Content -Path $ReportPath -Value $rLine
+        }
+    }
+    if ($regressions.Count -gt 0) {
+        Write-ReportLine ""
+        Write-ReportLine "  REGRESSIONS (previously passing/warn, now failing):" "Red"
+        foreach ($item in $regressions) {
+            $rLine = "    ! $item"
+            Write-Host $rLine -ForegroundColor Red
+            Add-Content -Path $ReportPath -Value $rLine
+        }
+    }
+    if ($newFails.Count -gt 0) {
+        Write-ReportLine ""
+        Write-ReportLine "  NEW FAILURES (checks not in previous report):" "Yellow"
+        foreach ($item in $newFails) {
+            $rLine = "    - $item"
+            Write-Host $rLine -ForegroundColor Yellow
+            Add-Content -Path $ReportPath -Value $rLine
+        }
+    }
+}
+
+# ============================================================
+#  PRIORITY REMEDIATION -- TOP FAILURES
+# ============================================================
 if ($failedItems.Count -gt 0) {
     Write-ReportLine ""
     Write-Divider "="
@@ -5150,12 +5443,19 @@ if ($failedItems.Count -gt 0) {
 
         $counter = 1
         foreach ($r in $group.Group) {
-            $l = "    ${counter}. [$($r.ID)] $($r.Description)"
+            $sev = if ($Script:RemediationData.ContainsKey($r.ID)) { " [$($Script:RemediationData[$r.ID].Severity)]" } else { "" }
+            $l = "    ${counter}.${sev} [$($r.ID)] $($r.Description)"
             Write-Host $l -ForegroundColor Red
             Add-Content -Path $ReportPath -Value $l
             $d = "       $($r.Detail)"
             Write-Host $d -ForegroundColor DarkRed
             Add-Content -Path $ReportPath -Value $d
+            # Add remediation guidance if available
+            if ($Script:RemediationData.ContainsKey($r.ID)) {
+                $rem = "       Remediation: $($Script:RemediationData[$r.ID].Remediation)"
+                Write-Host $rem -ForegroundColor DarkYellow
+                Add-Content -Path $ReportPath -Value $rem
+            }
             $counter++
         }
         Write-ReportLine ""
@@ -5416,6 +5716,454 @@ $Results | Select-Object ID, Framework, Status, Description, Detail |
     Export-Csv -Path $CsvPath -NoTypeInformation -Encoding UTF8
 
 # ============================================================
+#  JSON EXPORT
+# ============================================================
+$jsonObj = [ordered]@{
+    metadata = [ordered]@{
+        script_version = $ScriptVersion
+        hostname       = $env:COMPUTERNAME
+        user           = $env:USERNAME
+        os             = $osEdition
+        join_type      = $joinType
+        tenant         = "$($Script:TenantName) ($($Script:TenantID))"
+        mdm_enrolled   = [bool]$Script:MDMEnrolled
+        device_id      = $Script:DeviceID
+        audit_scope    = $Script:AuditLabel
+        timestamp      = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
+        duration       = $DurationStr
+        tpm            = "$tpmVersion ($tpmStatus)"
+        secure_boot    = $secureBootStr
+        bios           = $biosVendor
+        domain         = $domainInfo
+        ip_addresses   = $ipAddresses
+        last_reboot    = $lastReboot
+    }
+    summary = [ordered]@{
+        total_checks   = $totalChecks
+        passed         = $passCount
+        failed         = $failCount
+        warnings       = $warnCount
+        info           = $infoCount
+        overall_score  = $score
+        weighted_score = $weightedScore
+        risk_rating    = $overallRisk.Label
+    }
+    framework_scores = @(
+        foreach ($fwKey in @("CIS","CIS-L2","CE+","NCSC","EntraID")) {
+            $fw = $frameworkScoreMap[$fwKey]
+            if ($fw.Total -gt 0) {
+                [ordered]@{
+                    framework = $fwKey
+                    label     = $fw.Label
+                    score     = $fw.Score
+                    pass      = $fw.Pass
+                    fail      = $fw.Fail
+                    warn      = $fw.Warn
+                    total     = $fw.Total
+                }
+            }
+        }
+    )
+    compliance = @(
+        foreach ($fwKey in @("CIS","CIS-L2","CE+","NCSC","EntraID")) {
+            $fw = $frameworkScoreMap[$fwKey]
+            if ($fw.Total -eq 0) { continue }
+            $thresh = $Script:ComplianceThresholds[$fwKey]
+            [ordered]@{
+                framework = $fwKey
+                label     = $fw.Label
+                score     = $fw.Score
+                threshold = $thresh.Threshold
+                verdict   = if ($fw.Score -ge $thresh.Threshold) { "PASSES" } else { "DOES NOT PASS" }
+            }
+        }
+    )
+    section_scores = @(
+        foreach ($sec in $sortedSections) {
+            $s = $sectionScores[$sec]
+            $secScore = if ($s.Total -gt 0) { [math]::Round(($s.Pass / $s.Total) * 100, 0) } else { 0 }
+            $secName = if ($sectionNames.ContainsKey($sec)) { $sectionNames[$sec] } else { "Section $sec" }
+            [ordered]@{
+                section = $sec
+                name    = $secName
+                pass    = $s.Pass
+                fail    = $s.Fail
+                warn    = $s.Warn
+                total   = $s.Total
+                score   = $secScore
+            }
+        }
+    )
+    results = @(
+        foreach ($r in $Results) {
+            $entry = [ordered]@{
+                ID          = $r.ID
+                Description = $r.Description
+                Status      = $r.Status
+                Detail      = $r.Detail
+                Framework   = $r.Framework
+            }
+            if ($Script:RemediationData.ContainsKey($r.ID)) {
+                $entry.severity    = $Script:RemediationData[$r.ID].Severity
+                $entry.remediation = $Script:RemediationData[$r.ID].Remediation
+            }
+            $entry
+        }
+    )
+}
+
+$jsonObj | ConvertTo-Json -Depth 5 | Set-Content -Path $JsonPath -Encoding UTF8
+
+# ============================================================
+#  HTML REPORT
+# ============================================================
+# Build framework score data for charts
+$fwChartData = @()
+foreach ($fwKey in @("CIS","CIS-L2","CE+","NCSC","EntraID")) {
+    $fw = $frameworkScoreMap[$fwKey]
+    if ($fw.Total -gt 0) {
+        $fwChartData += [ordered]@{ label = $fw.Label; score = $fw.Score; pass = $fw.Pass; fail = $fw.Fail; warn = $fw.Warn; total = $fw.Total }
+    }
+}
+$fwChartJson = ($fwChartData | ConvertTo-Json -Depth 3 -Compress)
+# Ensure valid JSON array even with single item
+if ($fwChartData.Count -eq 1) { $fwChartJson = "[$fwChartJson]" }
+if ($fwChartData.Count -eq 0) { $fwChartJson = "[]" }
+
+# Build compliance data for HTML
+$complianceRows = ""
+foreach ($fwKey in @("CIS","CIS-L2","CE+","NCSC","EntraID")) {
+    $fw = $frameworkScoreMap[$fwKey]
+    if ($fw.Total -eq 0) { continue }
+    $thresh = $Script:ComplianceThresholds[$fwKey]
+    $verdict = if ($fw.Score -ge $thresh.Threshold) { "PASSES" } else { "DOES NOT PASS" }
+    $vClass  = if ($verdict -eq "PASSES") { "badge-pass" } else { "badge-fail" }
+    $complianceRows += "<tr><td>$($fw.Label)</td><td>$($fw.Score)%</td><td>$($thresh.Threshold)%</td><td><span class='$vClass'>$verdict</span></td></tr>`n"
+}
+
+# Build section scorecard rows
+$sectionRows = ""
+foreach ($sec in $sortedSections) {
+    $s = $sectionScores[$sec]
+    $secScore = if ($s.Total -gt 0) { [math]::Round(($s.Pass / $s.Total) * 100, 0) } else { 0 }
+    $secName = if ($sectionNames.ContainsKey($sec)) { $sectionNames[$sec] } else { "Section $sec" }
+    $rowClass = if ($secScore -ge 90) { "row-pass" } elseif ($secScore -ge 50) { "row-warn" } else { "row-fail" }
+    $sectionRows += "<tr class='$rowClass'><td>$sec</td><td>$secName</td><td>$($s.Pass)</td><td>$($s.Fail)</td><td>$($s.Warn)</td><td>$secScore%</td></tr>`n"
+}
+
+# Build results table rows
+$resultRows = ""
+foreach ($r in $Results) {
+    $statusClass = switch ($r.Status) { "PASS" { "badge-pass" }; "FAIL" { "badge-fail" }; "WARN" { "badge-warn" }; "INFO" { "badge-info" } }
+    $sevText = ""
+    $remText = ""
+    if ($Script:RemediationData.ContainsKey($r.ID)) {
+        $sevText = $Script:RemediationData[$r.ID].Severity
+        $remText = $Script:RemediationData[$r.ID].Remediation
+    }
+    # HTML-escape detail and remediation text
+    $safeDetail = [System.Net.WebUtility]::HtmlEncode($r.Detail)
+    $safeRem    = [System.Net.WebUtility]::HtmlEncode($remText)
+    $safeDesc   = [System.Net.WebUtility]::HtmlEncode($r.Description)
+    $resultRows += "<tr><td>$($r.ID)</td><td>$safeDesc</td><td><span class='$statusClass'>$($r.Status)</span></td><td>$($r.Framework)</td><td>$sevText</td><td class='detail-cell'>$safeDetail</td><td class='detail-cell'>$safeRem</td></tr>`n"
+}
+
+# Build top 5 risks HTML
+$top5Html = ""
+if ($failedItems.Count -gt 0) {
+    $top5List = $failedItems | Sort-Object { Get-SeverityWeight $_.ID } -Descending | Select-Object -First 5
+    foreach ($r in $top5List) {
+        $sev = if ($Script:RemediationData.ContainsKey($r.ID)) { $Script:RemediationData[$r.ID].Severity } else { "Medium" }
+        $safeDesc = [System.Net.WebUtility]::HtmlEncode($r.Description)
+        $top5Html += "<li><span class='badge-fail'>$sev</span> [$($r.ID)] $safeDesc</li>`n"
+    }
+}
+
+# Build remediation HTML
+$remediationHtml = ""
+if ($failedItems.Count -gt 0) {
+    $failByFw = $failedItems | Group-Object Framework | Sort-Object Count -Descending
+    foreach ($group in $failByFw) {
+        $fwName = switch ($group.Name) {
+            "CIS"     { "CIS Level 1" }
+            "CIS-L2"  { "CIS Level 2" }
+            "CE"      { "Cyber Essentials" }
+            "CE+"     { "Cyber Essentials Plus" }
+            "NCSC"    { "NCSC Alignment" }
+            "EntraID" { "Entra ID / M365" }
+            default   { $group.Name }
+        }
+        $remediationHtml += "<h4>$fwName ($($group.Count) failures)</h4><ol>`n"
+        foreach ($r in $group.Group) {
+            $sevBadge = ""
+            $remLine  = ""
+            if ($Script:RemediationData.ContainsKey($r.ID)) {
+                $sevBadge = "<span class='badge-warn'>$($Script:RemediationData[$r.ID].Severity)</span> "
+                $remLine  = "<br><em>Remediation: $([System.Net.WebUtility]::HtmlEncode($Script:RemediationData[$r.ID].Remediation))</em>"
+            }
+            $safeDesc = [System.Net.WebUtility]::HtmlEncode($r.Description)
+            $safeDetail = [System.Net.WebUtility]::HtmlEncode($r.Detail)
+            $remediationHtml += "<li>${sevBadge}[$($r.ID)] $safeDesc<br><small>$safeDetail</small>$remLine</li>`n"
+        }
+        $remediationHtml += "</ol>`n"
+    }
+}
+
+# Delta HTML (if previous report was provided)
+$deltaHtml = ""
+if ($Script:PreviousData) {
+    $deltaHtml = "<div class='section' id='delta'><h2 onclick=`"toggleSection('delta-body')`">Changes Since Last Audit</h2><div id='delta-body'>"
+    if ($null -ne $prevScore) {
+        $delta = $score - $prevScore
+        $arrow = if ($delta -gt 0) { "+" } elseif ($delta -lt 0) { "" } else { "" }
+        $dClass = if ($delta -gt 0) { "badge-pass" } elseif ($delta -lt 0) { "badge-fail" } else { "badge-info" }
+        $deltaHtml += "<p>Overall Score: <strong>$prevScore%</strong> -> <strong>$score%</strong> <span class='$dClass'>${arrow}${delta}%</span></p>"
+    }
+    $deltaHtml += "<p>Resolved: $($resolved.Count) | New Failures: $($newFails.Count) | Regressions: $($regressions.Count)</p>"
+    if ($resolved.Count -gt 0) {
+        $deltaHtml += "<h4 style='color:var(--pass)'>Resolved</h4><ul>"
+        foreach ($item in $resolved) { $deltaHtml += "<li class='resolved'>$([System.Net.WebUtility]::HtmlEncode($item))</li>" }
+        $deltaHtml += "</ul>"
+    }
+    if ($regressions.Count -gt 0) {
+        $deltaHtml += "<h4 style='color:var(--fail)'>Regressions</h4><ul>"
+        foreach ($item in $regressions) { $deltaHtml += "<li class='regression'>$([System.Net.WebUtility]::HtmlEncode($item))</li>" }
+        $deltaHtml += "</ul>"
+    }
+    if ($newFails.Count -gt 0) {
+        $deltaHtml += "<h4 style='color:var(--warn)'>New Failures</h4><ul>"
+        foreach ($item in $newFails) { $deltaHtml += "<li class='new-fail'>$([System.Net.WebUtility]::HtmlEncode($item))</li>" }
+        $deltaHtml += "</ul>"
+    }
+    $deltaHtml += "</div></div>"
+}
+
+# Build framework dashboard rows for HTML table
+$fwDashboardRows = ""
+foreach ($fwKey in @("CIS","CIS-L2","CE+","NCSC","EntraID")) {
+    $fw = $frameworkScoreMap[$fwKey]
+    if ($fw.Total -gt 0) {
+        $fwDashboardRows += "<tr><td>$($fw.Label)</td><td>$($fw.Score)%</td><td>$($fw.Pass)</td><td>$($fw.Fail)</td><td>$($fw.Warn)</td><td>$($fw.Total)</td></tr>`n"
+    }
+}
+
+# Build the HTML content using string concatenation to avoid here-string escaping issues
+$htmlParts = [System.Collections.Generic.List[string]]::new()
+$htmlParts.Add('<!DOCTYPE html>')
+$htmlParts.Add('<html lang="en">')
+$htmlParts.Add('<head>')
+$htmlParts.Add('<meta charset="UTF-8">')
+$htmlParts.Add('<meta name="viewport" content="width=device-width, initial-scale=1.0">')
+$htmlParts.Add("<title>Audit Report - $env:COMPUTERNAME - $(Get-Date -Format 'dd MMM yyyy')</title>")
+$htmlParts.Add('<style>')
+$htmlParts.Add(':root{--pass:#28a745;--fail:#dc3545;--warn:#ffc107;--info:#17a2b8;--bg:#f8f9fa;--card:#fff;--border:#dee2e6;--text:#212529;--muted:#6c757d}')
+$htmlParts.Add('*{box-sizing:border-box;margin:0;padding:0}')
+$htmlParts.Add('body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);line-height:1.6;padding:20px}')
+$htmlParts.Add('.container{max-width:1400px;margin:0 auto}')
+$htmlParts.Add('h1{text-align:center;margin:20px 0;font-size:1.8em}')
+$htmlParts.Add('h2{cursor:pointer;padding:12px 16px;background:#343a40;color:#fff;border-radius:6px 6px 0 0;margin:0;font-size:1.1em;user-select:none}')
+$htmlParts.Add('h2:hover{background:#495057}')
+$htmlParts.Add('h2::before{content:"+ ";font-weight:bold}')
+$htmlParts.Add('h2.open::before{content:"- "}')
+$htmlParts.Add('h3{margin:16px 0 8px;color:#343a40}')
+$htmlParts.Add('h4{margin:12px 0 6px;color:var(--fail)}')
+$htmlParts.Add('.section{background:var(--card);border:1px solid var(--border);border-radius:6px;margin:16px 0;box-shadow:0 1px 3px rgba(0,0,0,.08)}')
+$htmlParts.Add('.section > div{padding:16px;display:none}')
+$htmlParts.Add('.section > div.open{display:block}')
+$htmlParts.Add('.header-bar{background:linear-gradient(135deg,#1a1a2e,#16213e);color:#fff;padding:30px;border-radius:8px;margin-bottom:20px;text-align:center}')
+$htmlParts.Add('.header-bar h1{color:#fff;margin:0 0 8px}')
+$htmlParts.Add('.header-bar p{color:#adb5bd;margin:2px 0}')
+$htmlParts.Add('.toc{background:var(--card);border:1px solid var(--border);border-radius:6px;padding:16px;margin:16px 0}')
+$htmlParts.Add('.toc a{color:#007bff;text-decoration:none;display:inline-block;margin:4px 12px 4px 0}')
+$htmlParts.Add('.toc a:hover{text-decoration:underline}')
+$htmlParts.Add('.badge-pass{background:var(--pass);color:#fff;padding:2px 8px;border-radius:3px;font-size:.85em;font-weight:600}')
+$htmlParts.Add('.badge-fail{background:var(--fail);color:#fff;padding:2px 8px;border-radius:3px;font-size:.85em;font-weight:600}')
+$htmlParts.Add('.badge-warn{background:var(--warn);color:#212529;padding:2px 8px;border-radius:3px;font-size:.85em;font-weight:600}')
+$htmlParts.Add('.badge-info{background:var(--info);color:#fff;padding:2px 8px;border-radius:3px;font-size:.85em;font-weight:600}')
+$htmlParts.Add('.stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin:16px 0}')
+$htmlParts.Add('.stat-card{background:var(--card);border:1px solid var(--border);border-radius:6px;padding:16px;text-align:center}')
+$htmlParts.Add('.stat-card .value{font-size:2em;font-weight:700}')
+$htmlParts.Add('.stat-card .label{color:var(--muted);font-size:.85em}')
+$htmlParts.Add('.stat-card.pass .value{color:var(--pass)}')
+$htmlParts.Add('.stat-card.fail .value{color:var(--fail)}')
+$htmlParts.Add('.stat-card.warn .value{color:var(--warn)}')
+$htmlParts.Add('.stat-card.info .value{color:var(--info)}')
+$htmlParts.Add('.chart-container{display:flex;flex-wrap:wrap;gap:20px;justify-content:center;margin:16px 0}')
+$htmlParts.Add('.fw-chart{width:200px;text-align:center}')
+$htmlParts.Add('table{width:100%;border-collapse:collapse;margin:12px 0;font-size:.9em}')
+$htmlParts.Add('th{background:#343a40;color:#fff;padding:10px 12px;text-align:left;position:sticky;top:0;cursor:pointer}')
+$htmlParts.Add('th:hover{background:#495057}')
+$htmlParts.Add('td{padding:8px 12px;border-bottom:1px solid var(--border)}')
+$htmlParts.Add('tr:hover{background:#f1f3f5}')
+$htmlParts.Add('.row-pass{background:#d4edda}')
+$htmlParts.Add('.row-warn{background:#fff3cd}')
+$htmlParts.Add('.row-fail{background:#f8d7da}')
+$htmlParts.Add('.detail-cell{max-width:400px;word-wrap:break-word;font-size:.85em}')
+$htmlParts.Add('.filter-bar{margin:12px 0;display:flex;gap:8px;flex-wrap:wrap;align-items:center}')
+$htmlParts.Add('.filter-bar select,.filter-bar input{padding:6px 10px;border:1px solid var(--border);border-radius:4px;font-size:.9em}')
+$htmlParts.Add('.filter-bar input{width:250px}')
+$htmlParts.Add('.resolved{color:var(--pass)}')
+$htmlParts.Add('.regression{color:var(--fail)}')
+$htmlParts.Add('.new-fail{color:var(--warn)}')
+$htmlParts.Add('.compliance-table td:last-child{font-weight:700}')
+$htmlParts.Add('.print-only{display:none}')
+$htmlParts.Add('@media print{body{padding:0;font-size:10pt}.section > div{display:block!important}h2::before{content:""!important}.print-only{display:block}.no-print{display:none}}')
+$htmlParts.Add('@media(max-width:768px){.stats-grid{grid-template-columns:1fr 1fr}.filter-bar{flex-direction:column}.filter-bar input{width:100%}}')
+$htmlParts.Add('</style>')
+$htmlParts.Add('</head>')
+$htmlParts.Add('<body>')
+$htmlParts.Add('<div class="container">')
+
+# Header bar
+$htmlParts.Add('<div class="header-bar">')
+$htmlParts.Add('<h1>OTY Heavy Industries - Audit Report</h1>')
+$htmlParts.Add("<p>$env:COMPUTERNAME | $(Get-Date -Format 'dd MMM yyyy HH:mm') UTC | Version $ScriptVersion</p>")
+$htmlParts.Add("<p>Scope: $($Script:AuditLabel)</p>")
+$htmlParts.Add('</div>')
+
+# Table of contents
+$htmlParts.Add('<div class="toc no-print">')
+$htmlParts.Add('<strong>Quick Navigation:</strong>')
+$htmlParts.Add('<a href="#attestation">Compliance Attestation</a>')
+$htmlParts.Add('<a href="#summary">Executive Summary</a>')
+$htmlParts.Add('<a href="#dashboard">Framework Dashboard</a>')
+$htmlParts.Add('<a href="#scorecard">Section Scorecard</a>')
+$htmlParts.Add('<a href="#context">Device Context</a>')
+if ($Script:PreviousData) { $htmlParts.Add('<a href="#delta">Delta Comparison</a>') }
+$htmlParts.Add('<a href="#remediation">Priority Remediation</a>')
+$htmlParts.Add('<a href="#results">All Results</a>')
+$htmlParts.Add('</div>')
+
+# Compliance Attestation
+$htmlParts.Add('<div class="section" id="attestation">')
+$htmlParts.Add("<h2 class=`"open`" onclick=`"toggleSection('attestation-body')`">Compliance Attestation</h2>")
+$htmlParts.Add('<div id="attestation-body" class="open">')
+$htmlParts.Add('<table class="compliance-table">')
+$htmlParts.Add('<tr><th>Framework</th><th>Score</th><th>Threshold</th><th>Verdict</th></tr>')
+$htmlParts.Add($complianceRows)
+$htmlParts.Add('</table>')
+$htmlParts.Add('</div></div>')
+
+# Executive Summary
+$htmlParts.Add('<div class="section" id="summary">')
+$htmlParts.Add("<h2 class=`"open`" onclick=`"toggleSection('summary-body')`">Executive Summary</h2>")
+$htmlParts.Add('<div id="summary-body" class="open">')
+$htmlParts.Add('<div class="stats-grid">')
+$htmlParts.Add("<div class='stat-card'><div class='value'>$score%</div><div class='label'>Overall Score</div></div>")
+$htmlParts.Add("<div class='stat-card'><div class='value'>$weightedScore%</div><div class='label'>Weighted Score</div></div>")
+$htmlParts.Add("<div class='stat-card'><div class='value'>$($overallRisk.Label)</div><div class='label'>Risk Rating</div></div>")
+$htmlParts.Add("<div class='stat-card'><div class='value'>$totalChecks</div><div class='label'>Total Checks</div></div>")
+$htmlParts.Add("<div class='stat-card pass'><div class='value'>$passCount</div><div class='label'>Passed</div></div>")
+$htmlParts.Add("<div class='stat-card fail'><div class='value'>$failCount</div><div class='label'>Failed</div></div>")
+$htmlParts.Add("<div class='stat-card warn'><div class='value'>$warnCount</div><div class='label'>Warnings</div></div>")
+$htmlParts.Add("<div class='stat-card info'><div class='value'>$infoCount</div><div class='label'>Info</div></div>")
+$htmlParts.Add('</div>')
+$htmlParts.Add("<p><strong>Audit Duration:</strong> $DurationStr</p>")
+if ($top5Html) { $htmlParts.Add("<h3>Top 5 Risks</h3><ol>$top5Html</ol>") }
+$htmlParts.Add('</div></div>')
+
+# Framework Dashboard
+$htmlParts.Add('<div class="section" id="dashboard">')
+$htmlParts.Add("<h2 class=`"open`" onclick=`"toggleSection('dashboard-body')`">Framework Score Dashboard</h2>")
+$htmlParts.Add('<div id="dashboard-body" class="open">')
+$htmlParts.Add('<div class="chart-container" id="fw-charts"></div>')
+$htmlParts.Add('<table>')
+$htmlParts.Add('<tr><th>Framework</th><th>Score</th><th>Pass</th><th>Fail</th><th>Warn</th><th>Total</th></tr>')
+$htmlParts.Add($fwDashboardRows)
+$htmlParts.Add('</table>')
+$htmlParts.Add("<p><small>* NCSC uses weighted scoring: PASS=full, WARN=partial (0.5), FAIL=none.</small></p>")
+$htmlParts.Add('</div></div>')
+
+# Section Scorecard
+$htmlParts.Add('<div class="section" id="scorecard">')
+$htmlParts.Add("<h2 onclick=`"toggleSection('scorecard-body')`">Section Scorecard</h2>")
+$htmlParts.Add('<div id="scorecard-body">')
+$htmlParts.Add('<table>')
+$htmlParts.Add('<tr><th>Section</th><th>Name</th><th>Pass</th><th>Fail</th><th>Warn</th><th>Score</th></tr>')
+$htmlParts.Add($sectionRows)
+$htmlParts.Add('</table>')
+$htmlParts.Add('</div></div>')
+
+# Device Context
+$safeOsEdition = [System.Net.WebUtility]::HtmlEncode($osEdition)
+$safeBiosVendor = [System.Net.WebUtility]::HtmlEncode($biosVendor)
+$htmlParts.Add('<div class="section" id="context">')
+$htmlParts.Add("<h2 onclick=`"toggleSection('context-body')`">Device Context</h2>")
+$htmlParts.Add('<div id="context-body">')
+$htmlParts.Add('<table>')
+$htmlParts.Add("<tr><td><strong>Hostname</strong></td><td>$env:COMPUTERNAME</td><td><strong>User</strong></td><td>$env:USERNAME</td></tr>")
+$htmlParts.Add("<tr><td><strong>OS</strong></td><td>$safeOsEdition</td><td><strong>Last Reboot</strong></td><td>$lastReboot</td></tr>")
+$htmlParts.Add("<tr><td><strong>Join Type</strong></td><td>$joinType</td><td><strong>Domain</strong></td><td>$domainInfo</td></tr>")
+$mdmDisplay = "$($Script:MDMEnrolled) $(if ($Script:MDMUrl) {"($($Script:MDMUrl))"} else {''})"
+$htmlParts.Add("<tr><td><strong>Tenant</strong></td><td>$($Script:TenantName) ($($Script:TenantID))</td><td><strong>MDM</strong></td><td>$mdmDisplay</td></tr>")
+$htmlParts.Add("<tr><td><strong>TPM</strong></td><td>$tpmVersion ($tpmStatus)</td><td><strong>Secure Boot</strong></td><td>$secureBootStr</td></tr>")
+$htmlParts.Add("<tr><td><strong>BIOS/UEFI</strong></td><td>$safeBiosVendor</td><td><strong>PowerShell</strong></td><td>$psVersion</td></tr>")
+$htmlParts.Add("<tr><td><strong>IP Address(es)</strong></td><td colspan=`"3`">$ipAddresses</td></tr>")
+$htmlParts.Add('</table>')
+$htmlParts.Add('</div></div>')
+
+# Delta section (if applicable)
+if ($deltaHtml) { $htmlParts.Add($deltaHtml) }
+
+# Priority Remediation
+$htmlParts.Add('<div class="section" id="remediation">')
+$htmlParts.Add("<h2 onclick=`"toggleSection('remediation-body')`">Priority Remediation ($failCount failed controls)</h2>")
+$htmlParts.Add('<div id="remediation-body">')
+$htmlParts.Add($remediationHtml)
+$htmlParts.Add('</div></div>')
+
+# All Results
+$htmlParts.Add('<div class="section" id="results">')
+$htmlParts.Add("<h2 onclick=`"toggleSection('results-body')`">All Results ($totalChecks checks)</h2>")
+$htmlParts.Add('<div id="results-body">')
+$htmlParts.Add('<div class="filter-bar no-print">')
+$htmlParts.Add('<label>Status:</label>')
+$htmlParts.Add('<select id="statusFilter" onchange="filterResults()">')
+$htmlParts.Add('<option value="">All</option><option value="PASS">PASS</option><option value="FAIL">FAIL</option><option value="WARN">WARN</option><option value="INFO">INFO</option>')
+$htmlParts.Add('</select>')
+$htmlParts.Add('<label>Framework:</label>')
+$htmlParts.Add('<select id="fwFilter" onchange="filterResults()">')
+$htmlParts.Add('<option value="">All</option><option value="CIS">CIS</option><option value="CIS-L2">CIS-L2</option><option value="CE+">CE+</option><option value="NCSC">NCSC</option><option value="EntraID">EntraID</option>')
+$htmlParts.Add('</select>')
+$htmlParts.Add('<input type="text" id="searchFilter" placeholder="Search descriptions..." oninput="filterResults()">')
+$htmlParts.Add('</div>')
+$htmlParts.Add('<table id="resultsTable">')
+$htmlParts.Add('<thead><tr><th onclick="sortTable(0)">ID</th><th onclick="sortTable(1)">Description</th><th onclick="sortTable(2)">Status</th><th onclick="sortTable(3)">Framework</th><th onclick="sortTable(4)">Severity</th><th onclick="sortTable(5)">Detail</th><th onclick="sortTable(6)">Remediation</th></tr></thead>')
+$htmlParts.Add("<tbody id=`"resultsBody`">")
+$htmlParts.Add($resultRows)
+$htmlParts.Add('</tbody>')
+$htmlParts.Add('</table>')
+$htmlParts.Add('</div></div>')
+
+# Footer
+$htmlParts.Add('<div style="text-align:center;padding:20px;color:var(--muted);font-size:.85em">')
+$htmlParts.Add("<p>Generated by OTY Heavy Industries Audit Script v$ScriptVersion | $(Get-Date -Format 'dd MMM yyyy HH:mm:ss') UTC</p>")
+$htmlParts.Add("<p>Duration: $DurationStr | <a href=`"#`" onclick=`"window.print();return false;`" class=`"no-print`">Print / Save as PDF</a></p>")
+$htmlParts.Add('</div>')
+
+$htmlParts.Add('</div>')
+
+# JavaScript
+$htmlParts.Add('<script>')
+$htmlParts.Add("var fwData=$fwChartJson;")
+$jsCode = @'
+function toggleSection(id){var el=document.getElementById(id);if(!el)return;var h=el.previousElementSibling;if(el.classList.contains('open')){el.classList.remove('open');if(h)h.classList.remove('open')}else{el.classList.add('open');if(h)h.classList.add('open')}}
+function getBarColor(s){return s>=90?'var(--pass)':s>=75?'var(--warn)':'var(--fail)'}
+function buildCharts(){var c=document.getElementById('fw-charts');if(!c||!fwData)return;fwData.forEach(function(f){var d=document.createElement('div');d.className='fw-chart';var svg='<svg viewBox="0 0 36 36" width="120" height="120">';svg+='<path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#e9ecef" stroke-width="3"/>';svg+='<path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="'+getBarColor(f.score)+'" stroke-width="3" stroke-dasharray="'+f.score+', 100" stroke-linecap="round"/>';svg+='<text x="18" y="20.35" text-anchor="middle" font-size="8" font-weight="bold" fill="#333">'+f.score+'%</text>';svg+='</svg>';d.innerHTML=svg+'<div><strong>'+f.label+'</strong></div><div style="font-size:.8em;color:var(--muted)">'+f.pass+'P / '+f.fail+'F / '+f.warn+'W</div>';c.appendChild(d)})}
+function filterResults(){var s=document.getElementById('statusFilter').value;var f=document.getElementById('fwFilter').value;var q=document.getElementById('searchFilter').value.toLowerCase();var rows=document.querySelectorAll('#resultsBody tr');rows.forEach(function(r){var cells=r.getElementsByTagName('td');var show=true;if(s&&cells[2].textContent.trim()!==s)show=false;if(f&&cells[3].textContent.trim()!==f)show=false;if(q&&cells[1].textContent.toLowerCase().indexOf(q)===-1&&cells[5].textContent.toLowerCase().indexOf(q)===-1)show=false;r.style.display=show?'':'none'})}
+var sortDir={};
+function sortTable(n){var table=document.getElementById('resultsTable');var rows=Array.from(table.querySelectorAll('tbody tr'));sortDir[n]=!sortDir[n];rows.sort(function(a,b){var x=a.cells[n].textContent.trim();var y=b.cells[n].textContent.trim();if(!isNaN(parseFloat(x))&&!isNaN(parseFloat(y)))return sortDir[n]?x-y:y-x;return sortDir[n]?x.localeCompare(y):y.localeCompare(x)});var tbody=table.querySelector('tbody');rows.forEach(function(r){tbody.appendChild(r)})}
+buildCharts();
+'@
+$htmlParts.Add($jsCode)
+$htmlParts.Add('</script>')
+$htmlParts.Add('</body>')
+$htmlParts.Add('</html>')
+
+$htmlContent = $htmlParts -join "`n"
+$htmlContent | Set-Content -Path $HtmlPath -Encoding UTF8
+
+# ============================================================
 #  REPORT FOOTER
 # ============================================================
 Write-ReportLine ""
@@ -5428,7 +6176,14 @@ Write-Divider "="
 Write-Host ""
 Write-Host "  Text report saved to : $ReportPath" -ForegroundColor Green
 Write-Host "  CSV export saved to  : $CsvPath" -ForegroundColor Green
+Write-Host "  JSON export saved to : $JsonPath" -ForegroundColor Green
+Write-Host "  HTML report saved to : $HtmlPath" -ForegroundColor Green
+Write-Host ""
+Write-Host "  Tip: Open the HTML report in a browser for interactive charts," -ForegroundColor Cyan
+Write-Host "       filtering, and print-to-PDF export." -ForegroundColor Cyan
 Write-Host ""
 Add-Content -Path $ReportPath -Value ""
 Add-Content -Path $ReportPath -Value "  Text report : $ReportPath"
 Add-Content -Path $ReportPath -Value "  CSV export  : $CsvPath"
+Add-Content -Path $ReportPath -Value "  JSON export : $JsonPath"
+Add-Content -Path $ReportPath -Value "  HTML report : $HtmlPath"
