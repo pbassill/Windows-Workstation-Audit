@@ -2659,8 +2659,8 @@ if ($null -ne $winrmSvc -and -not $winrmWasRunning) {
 }
 $winrmListener = Get-ChildItem "WSMan:\localhost\Listener" -ErrorAction SilentlyContinue
 if ($winrmListener) {
-    $httpListeners  = $winrmListener | Where-Object { ($_ | Get-Item).GetChildItem() | Where-Object { $_.Name -eq "Transport" -and $_.Value -eq "HTTP" } }
-    $httpsListeners = $winrmListener | Where-Object { ($_ | Get-Item).GetChildItem() | Where-Object { $_.Name -eq "Transport" -and $_.Value -eq "HTTPS" } }
+    $httpListeners  = $winrmListener | Where-Object { Get-ChildItem -LiteralPath $_.PSPath -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq "Transport" -and $_.Value -eq "HTTP" } }
+    $httpsListeners = $winrmListener | Where-Object { Get-ChildItem -LiteralPath $_.PSPath -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq "Transport" -and $_.Value -eq "HTTPS" } }
     $s = if ($httpListeners) { "FAIL" } elseif ($httpsListeners) { "PASS" } else { "PASS" }
     Add-Result "40.4" "WinRM: HTTPS Only (No HTTP Listener)" $s "HTTP listeners: $(if ($httpListeners) {$httpListeners.Count} else {0}), HTTPS listeners: $(if ($httpsListeners) {$httpsListeners.Count} else {0})" "CIS-L2"
 } else {
