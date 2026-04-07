@@ -332,10 +332,21 @@ function Find-BestVulnerability {
 
         # ---- Determine severity ----
         $severity = $null
-        if ($cve.metrics.cvssMetricV31) {
-            $severity = $cve.metrics.cvssMetricV31[0].cvssData.baseSeverity
-        } elseif ($cve.metrics.cvssMetricV30) {
-            $severity = $cve.metrics.cvssMetricV30[0].cvssData.baseSeverity
+        $metrics  = $cve.metrics
+        if ($metrics -and $metrics.PSObject.Properties['cvssMetricV40'] -and $metrics.cvssMetricV40) {
+            $severity = $metrics.cvssMetricV40[0].cvssData.baseSeverity
+        } elseif ($metrics -and $metrics.PSObject.Properties['cvssMetricV31'] -and $metrics.cvssMetricV31) {
+            $severity = $metrics.cvssMetricV31[0].cvssData.baseSeverity
+        } elseif ($metrics -and $metrics.PSObject.Properties['cvssMetricV30'] -and $metrics.cvssMetricV30) {
+            $severity = $metrics.cvssMetricV30[0].cvssData.baseSeverity
+        } elseif ($metrics -and $metrics.PSObject.Properties['cvssMetricV2'] -and $metrics.cvssMetricV2) {
+            # NVD API v2.0: cvssMetricV2 stores baseSeverity at the metric level, not inside cvssData
+            $v2sev = $null
+            $v2metric = $metrics.cvssMetricV2[0]
+            if ($v2metric.PSObject.Properties['baseSeverity']) {
+                $v2sev = $v2metric.baseSeverity
+            }
+            if ($v2sev) { $severity = $v2sev }
         }
         if (-not $severity -or $severity -notin @("CRITICAL", "HIGH")) { continue }
         $rank = $severityRank[$severity]
