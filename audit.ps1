@@ -4873,7 +4873,7 @@ foreach ($app in $allApps) {
         }
         $detail = "$name v$version < $($matchedVuln.vulnerable_below) [$sev] ($($matchedVuln.cve))${kevTag}"
         if ($app.InstallLocation -and $app.InstallLocation.Trim() -ne "") {
-            $detail += " | Path: $($app.InstallLocation.TrimEnd('\'))"
+            $detail += " | Path: $($app.InstallLocation.TrimEnd([char]'\'))"
         }
         $vulnDetails.Add($detail)
         continue
