@@ -30,12 +30,12 @@
       entra - Entra ID / M365 checks only
 
 .EXAMPLE
-    .\audit.ps1 --audit all
-    .\audit.ps1 --audit ce
-    .\audit.ps1 --audit cis1
-    .\audit.ps1 --audit cis2
-    .\audit.ps1 --audit ncsc
-    .\audit.ps1 --audit entra
+    .\audit.ps1 -Audit all
+    .\audit.ps1 -Audit ce
+    .\audit.ps1 -Audit cis1
+    .\audit.ps1 -Audit cis2
+    .\audit.ps1 -Audit ncsc
+    .\audit.ps1 -Audit entra
 
 .NOTES
     Must be run as Administrator.

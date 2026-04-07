@@ -67,7 +67,7 @@ Run the script in an elevated PowerShell session:
 | `ncsc` | NCSC alignment checks only |
 | `entra` | Entra ID / M365 checks only |
 
-> **Note:** The `--audit` syntax (e.g. `.\audit.ps1 --audit ce`) is also supported by PowerShell and is equivalent to `-Audit ce`.
+> **Note:** PowerShell also accepts the shortened `-Audit` syntax (e.g. `.\audit.ps1 -Audit ce`). The `--audit` double-dash form may work in some PowerShell hosts but `-Audit` is the standard PowerShell syntax.
 
 ## Output
 
