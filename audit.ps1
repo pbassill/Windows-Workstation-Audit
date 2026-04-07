@@ -2524,6 +2524,13 @@ $s = if ($raOffer -eq 0 -or $null -eq $raOffer) { "PASS" } else { "FAIL" }
 Add-Result "40.3" "Unsolicited (Offer) Remote Assistance Disabled" $s "fAllowUnsolicited: $raOffer" "CIS-L2"
 
 # WinRM - listener check
+# Ensure WinRM service is running before accessing the WSMan: drive so that
+# PowerShell does not pause waiting for interactive confirmation.
+$winrmSvc = Get-Service -Name "WinRM" -ErrorAction SilentlyContinue
+$winrmWasRunning = ($null -ne $winrmSvc) -and ($winrmSvc.Status -eq "Running")
+if ($null -ne $winrmSvc -and -not $winrmWasRunning) {
+    Start-Service "WinRM" -ErrorAction SilentlyContinue
+}
 $winrmListener = Get-ChildItem "WSMan:\localhost\Listener" -ErrorAction SilentlyContinue
 if ($winrmListener) {
     $httpListeners  = $winrmListener | Where-Object { ($_ | Get-Item).GetChildItem() | Where-Object { $_.Name -eq "Transport" -and $_.Value -eq "HTTP" } }
@@ -2532,6 +2539,10 @@ if ($winrmListener) {
     Add-Result "40.4" "WinRM: HTTPS Only (No HTTP Listener)" $s "HTTP listeners: $(if ($httpListeners) {$httpListeners.Count} else {0}), HTTPS listeners: $(if ($httpsListeners) {$httpsListeners.Count} else {0})" "CIS-L2"
 } else {
     Add-Result "40.4" "WinRM: No Active Listeners" "PASS" "No WinRM listeners configured" "CIS-L2"
+}
+# Restore WinRM to its previous state if we started it
+if (($null -ne $winrmSvc) -and -not $winrmWasRunning) {
+    Stop-Service "WinRM" -Force -ErrorAction SilentlyContinue
 }
 
 # PSRemoting
