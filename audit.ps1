@@ -34,6 +34,25 @@
     includes a delta/trend comparison showing new failures, resolved items,
     score changes, and regressions since the last audit.
 
+.PARAMETER Monitor
+    Register a Windows Scheduled Task to run the audit periodically with
+    drift detection. Uses -MonitorSchedule to set frequency.
+
+.PARAMETER MonitorSchedule
+    Frequency for -Monitor mode. Valid values: Daily, Weekly. Default: Daily.
+
+.PARAMETER Remediate
+    Enable remediation mode. In dry-run mode (default) shows what changes
+    would be made. With -Confirm, applies fixes from remediation.json.
+
+.PARAMETER Confirm
+    When used with -Remediate, actually applies the remediation fixes
+    instead of just showing what would be changed.
+
+.PARAMETER RemediateMinSeverity
+    Minimum severity level to remediate. Default: Medium (remediates
+    Critical, High, and Medium). Set to Critical to only fix critical items.
+
 .EXAMPLE
     .\audit.ps1 -Audit all
     .\audit.ps1 -Audit ce
@@ -42,6 +61,9 @@
     .\audit.ps1 -Audit ncsc
     .\audit.ps1 -Audit entra
     .\audit.ps1 -PreviousReport "C:\audits\previous.json"
+    .\audit.ps1 -Monitor -MonitorSchedule Daily
+    .\audit.ps1 -Remediate
+    .\audit.ps1 -Remediate -Confirm -RemediateMinSeverity High
 
 .NOTES
     Must be run as Administrator.
@@ -53,19 +75,32 @@ param(
     [ValidateSet("all","ce","cis1","cis2","ncsc","entra")]
     [string]$Audit = "all",
 
-    [string]$PreviousReport = ""
+    [string]$PreviousReport = "",
+
+    [switch]$Monitor,
+
+    [ValidateSet("Daily","Weekly")]
+    [string]$MonitorSchedule = "Daily",
+
+    [switch]$Remediate,
+
+    [switch]$Confirm,
+
+    [ValidateSet("Critical","High","Medium")]
+    [string]$RemediateMinSeverity = "Medium"
 )
 
 # ============================================================
 #  INITIALISATION
 # ============================================================
-$ScriptVersion = "6.0.0"
+$ScriptVersion = "7.0.0"
 $Timestamp     = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
 $MachineName   = $env:COMPUTERNAME
 $ReportPath    = "$PSScriptRoot\${MachineName}_Audit_$Timestamp.txt"
 $CsvPath       = "$PSScriptRoot\${MachineName}_Audit_$Timestamp.csv"
 $JsonPath      = "$PSScriptRoot\${MachineName}_Audit_$Timestamp.json"
 $HtmlPath      = "$PSScriptRoot\${MachineName}_Audit_$Timestamp.html"
+$SbomPath      = "$PSScriptRoot\${MachineName}_SBOM_$Timestamp.json"
 $SecCfg        = "$env:TEMP\oty_secedit_$Timestamp.cfg"
 $Results       = [System.Collections.Generic.List[PSCustomObject]]::new()
 $AuditStartTime = Get-Date
@@ -125,6 +160,35 @@ if ($PreviousReport -and (Test-Path $PreviousReport)) {
         $Script:PreviousData = Get-Content $PreviousReport -Raw -ErrorAction Stop | ConvertFrom-Json
     } catch {
         Write-Host "  [!] Could not parse previous report: $_" -ForegroundColor Yellow
+    }
+}
+
+# ---- Load custom checks companion file ----
+$Script:CustomChecks = @()
+$customChecksPath = Join-Path $PSScriptRoot "custom-checks.json"
+if (Test-Path $customChecksPath) {
+    try {
+        $Script:CustomChecks = Get-Content $customChecksPath -Raw -ErrorAction Stop | ConvertFrom-Json
+        # Filter out entries that are comment-only (no id field)
+        $Script:CustomChecks = @($Script:CustomChecks | Where-Object { $_.id })
+    } catch {
+        Write-Host "  [!] Could not parse custom-checks.json: $_" -ForegroundColor Yellow
+    }
+}
+
+# ---- Load framework mappings companion file ----
+$Script:FrameworkMappings = @{}
+$fwMappingsPath = Join-Path $PSScriptRoot "framework-mappings.json"
+if (Test-Path $fwMappingsPath) {
+    try {
+        $fwMapJson = Get-Content $fwMappingsPath -Raw -ErrorAction Stop | ConvertFrom-Json
+        if ($fwMapJson.mappings) {
+            $fwMapJson.mappings.PSObject.Properties | ForEach-Object {
+                $Script:FrameworkMappings[$_.Name] = $_.Value
+            }
+        }
+    } catch {
+        Write-Host "  [!] Could not parse framework-mappings.json: $_" -ForegroundColor Yellow
     }
 }
 
@@ -309,6 +373,66 @@ function Write-Divider {
     param([string]$Char = "=", [int]$Width = 72)
     $line = "  " + ($Char * $Width)
     Write-ReportLine $line
+}
+
+# ============================================================
+#  MONITOR MODE -- Register Scheduled Task for Drift Detection
+# ============================================================
+if ($Monitor) {
+    $taskName = "OTY-WorkstationAudit"
+    $scriptFullPath = $MyInvocation.MyCommand.Path
+    $action = New-ScheduledTaskAction -Execute "powershell.exe" `
+        -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$scriptFullPath`" -Audit $Audit"
+
+    $trigger = if ($MonitorSchedule -eq "Weekly") {
+        New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday -At "06:00"
+    } else {
+        New-ScheduledTaskTrigger -Daily -At "06:00"
+    }
+
+    $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -RunLevel Highest
+    $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -DontStopIfGoingOnBatteries
+
+    # Create custom event log source for drift alerts
+    try {
+        if (-not [System.Diagnostics.EventLog]::SourceExists("OTY-Audit")) {
+            [System.Diagnostics.EventLog]::CreateEventSource("OTY-Audit", "Application")
+        }
+    } catch { }
+
+    try {
+        $existing = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+        if ($existing) {
+            Set-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings | Out-Null
+            Write-Host "  [OK] Updated scheduled task '$taskName' ($MonitorSchedule at 06:00)" -ForegroundColor Green
+        } else {
+            Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings | Out-Null
+            Write-Host "  [OK] Registered scheduled task '$taskName' ($MonitorSchedule at 06:00)" -ForegroundColor Green
+        }
+        Write-Host "  [*] Drift detection: Each run will auto-compare with the most recent JSON export." -ForegroundColor Cyan
+        Write-Host "  [*] Regressions will be logged to Windows Event Log (Source: OTY-Audit, ID: 1001)." -ForegroundColor Cyan
+    } catch {
+        Write-Host "  [!] Failed to register scheduled task: $_" -ForegroundColor Red
+    }
+    Write-Host ""
+    Write-Host "  To remove the scheduled task: Unregister-ScheduledTask -TaskName '$taskName' -Confirm:`$false" -ForegroundColor DarkGray
+    exit 0
+}
+
+# ============================================================
+#  AUTO-DETECT PREVIOUS REPORT (for scheduled/drift runs)
+# ============================================================
+if (-not $PreviousReport) {
+    $existingReports = Get-ChildItem -Path $PSScriptRoot -Filter "${MachineName}_Audit_*.json" -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    if ($existingReports) {
+        $PreviousReport = $existingReports.FullName
+        $Script:PreviousData = $null
+        try {
+            $Script:PreviousData = Get-Content $PreviousReport -Raw -ErrorAction Stop | ConvertFrom-Json
+            Write-Host "  [*] Auto-detected previous report for drift comparison: $($existingReports.Name)" -ForegroundColor DarkGray
+        } catch { }
+    }
 }
 
 # ============================================================
@@ -4968,6 +5092,486 @@ if ($staleCount -gt 0) {
 if ($unknownCount -gt 0) { $overallDetail += ", $unknownCount unknown" }
 $overallDetail += " | Thresholds: 14d critical/high, 30d other (CE5)"
 Add-Result "80.7" "Overall App Patch Currency" "INFO" $overallDetail "CE+"
+
+# ============================================================
+#  SECTION 81: CUSTOM / ORGANISATION-SPECIFIC CHECKS  [Custom]
+# ============================================================
+if ($Script:CustomChecks.Count -gt 0) {
+    Write-SectionHeader "81. CUSTOM / ORGANISATION-SPECIFIC CHECKS" "Custom"
+
+    foreach ($check in $Script:CustomChecks) {
+        $cId   = $check.id
+        $cDesc = $check.description
+        $cFw   = if ($check.framework) { $check.framework } else { "Custom" }
+        $cSev  = if ($check.severity)  { $check.severity  } else { "Medium" }
+        $cType = $check.type
+
+        # Add remediation data for custom checks dynamically
+        if (-not $Script:RemediationData.ContainsKey($cId)) {
+            $Script:RemediationData[$cId] = @{
+                Severity    = $cSev
+                Remediation = if ($check.remediation) { $check.remediation } else { "See custom-checks.json" }
+            }
+        }
+
+        switch ($cType) {
+            "registry" {
+                $regPath  = $check.path
+                $regName  = $check.name
+                $expected = $check.expected
+                $op       = $check.operator
+                $actual   = Get-RegValue $regPath $regName
+
+                if ($op -eq "exists") {
+                    $s = if ($null -ne $actual) { "PASS" } else { "FAIL" }
+                    Add-Result $cId $cDesc $s "Value exists: $(if ($null -ne $actual) {'Yes'} else {'No'}) at $regPath\$regName" $cFw
+                } elseif ($op -eq "not_exists") {
+                    $s = if ($null -eq $actual) { "PASS" } else { "FAIL" }
+                    Add-Result $cId $cDesc $s "Value absent: $(if ($null -eq $actual) {'Yes (good)'} else {"Found: $actual"}) at $regPath\$regName" $cFw
+                } elseif ($null -eq $actual) {
+                    Add-Result $cId $cDesc "FAIL" "Registry value not found: $regPath\$regName" $cFw
+                } else {
+                    $pass = $false
+                    # Try numeric comparison first, fall back to string
+                    $numActual   = 0; $isNumA = [double]::TryParse("$actual",   [ref]$numActual)
+                    $numExpected = 0; $isNumE = [double]::TryParse("$expected", [ref]$numExpected)
+                    if ($isNumA -and $isNumE) {
+                        switch ($op) {
+                            "eq" { $pass = $numActual -eq $numExpected }
+                            "ne" { $pass = $numActual -ne $numExpected }
+                            "ge" { $pass = $numActual -ge $numExpected }
+                            "le" { $pass = $numActual -le $numExpected }
+                            "gt" { $pass = $numActual -gt $numExpected }
+                            "lt" { $pass = $numActual -lt $numExpected }
+                            default { $pass = "$actual" -eq "$expected" }
+                        }
+                    } else {
+                        switch ($op) {
+                            "eq" { $pass = "$actual" -eq "$expected" }
+                            "ne" { $pass = "$actual" -ne "$expected" }
+                            default { $pass = "$actual" -eq "$expected" }
+                        }
+                    }
+                    $s = if ($pass) { "PASS" } else { "FAIL" }
+                    Add-Result $cId $cDesc $s "Expected: $expected ($op) | Got: $actual | Path: $regPath\$regName" $cFw
+                }
+            }
+            "service" {
+                $svcName = $check.service_name
+                $svc = Get-Service -Name $svcName -ErrorAction SilentlyContinue
+                if ($null -eq $svc) {
+                    Add-Result $cId $cDesc "FAIL" "Service '$svcName' not found" $cFw
+                } else {
+                    $statusOk  = if ($check.expected_status)  { $svc.Status  -eq $check.expected_status  } else { $true }
+                    $startupOk = if ($check.expected_startup) { $svc.StartType -eq $check.expected_startup } else { $true }
+                    $s = if ($statusOk -and $startupOk) { "PASS" } else { "FAIL" }
+                    Add-Result $cId $cDesc $s "Service: $svcName | Status: $($svc.Status) (want: $($check.expected_status)) | Startup: $($svc.StartType) (want: $($check.expected_startup))" $cFw
+                }
+            }
+            "file_exists" {
+                $fp = $check.file_path
+                $s = if (Test-Path $fp) { "PASS" } else { "FAIL" }
+                Add-Result $cId $cDesc $s "File/folder: $fp | Exists: $(Test-Path $fp)" $cFw
+            }
+            "file_absent" {
+                $fp = $check.file_path
+                $s = if (-not (Test-Path $fp)) { "PASS" } else { "FAIL" }
+                Add-Result $cId $cDesc $s "File/folder: $fp | Should not exist. Found: $(Test-Path $fp)" $cFw
+            }
+            default {
+                Add-Result $cId $cDesc "WARN" "Unknown check type: $cType" $cFw
+            }
+        }
+    }
+}
+
+# ============================================================
+#  SECTION 82: GOOGLE CHROME ENTERPRISE POLICY  [CIS-L2 | CE+]
+# ============================================================
+Write-SectionHeader "82. GOOGLE CHROME ENTERPRISE POLICY" "CIS-L2 | CE+"
+
+$chromePolPath = "HKLM:\SOFTWARE\Policies\Google\Chrome"
+$chromeInstalled = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -match "Google Chrome" }) -or `
+                   (Get-ItemProperty "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -match "Google Chrome" })
+
+if (-not $chromeInstalled) {
+    Add-Result "82.1" "Chrome Installation Status" "INFO" "Google Chrome not detected - skipping Chrome policy checks" "CIS-L2"
+} else {
+    Add-Result "82.1" "Chrome Installation Status" "INFO" "Google Chrome detected - checking enterprise policies" "CIS-L2"
+
+    # 82.2 Safe Browsing
+    $safeBrowsing = Get-RegValue $chromePolPath "SafeBrowsingProtectionLevel"
+    $s = if ($safeBrowsing -ge 1) { "PASS" } else { "WARN" }
+    Add-Result "82.2" "Chrome Safe Browsing Enabled" $s "SafeBrowsingProtectionLevel: $(if ($null -eq $safeBrowsing) {'Not managed'} else {$safeBrowsing}) (1=Standard, 2=Enhanced)" "CIS-L2"
+
+    # 82.3 Password Manager
+    $pwdMgr = Get-RegValue $chromePolPath "PasswordManagerEnabled"
+    $s = if ($pwdMgr -eq 0) { "PASS" } else { "WARN" }
+    Add-Result "82.3" "Chrome Password Manager Disabled" $s "PasswordManagerEnabled: $(if ($null -eq $pwdMgr) {'Not managed (default on)'} else {$pwdMgr}) (enterprise: recommend disable in favour of dedicated vault)" "CIS-L2"
+
+    # 82.4 Auto-Update
+    $updatePol = Get-RegValue "HKLM:\SOFTWARE\Policies\Google\Update" "UpdateDefault"
+    $s = if ($null -eq $updatePol -or $updatePol -ge 1) { "PASS" } else { "FAIL" }
+    Add-Result "82.4" "Chrome Auto-Update Enabled" $s "UpdateDefault: $(if ($null -eq $updatePol) {'Not managed (updates enabled by default)'} else {$updatePol}) (0=Disabled)" "CE+"
+
+    # 82.5 Extension Install Allowlist/Blocklist
+    $extBlockAll = Get-RegValue "$chromePolPath\ExtensionInstallBlocklist" "1"
+    $s = if ($extBlockAll -eq "*") { "PASS" } elseif ($null -ne $extBlockAll) { "WARN" } else { "WARN" }
+    Add-Result "82.5" "Chrome Extension Blocklist Managed" $s "ExtensionInstallBlocklist: $(if ($extBlockAll -eq '*') {'Block-all configured'} elseif ($null -ne $extBlockAll) {'Partial blocklist'} else {'Not managed'})" "CIS-L2"
+
+    # 82.6 Incognito Mode
+    $incognito = Get-RegValue $chromePolPath "IncognitoModeAvailability"
+    $s = if ($incognito -eq 1) { "PASS" } else { "INFO" }
+    Add-Result "82.6" "Chrome Incognito Mode Policy" $s "IncognitoModeAvailability: $(if ($null -eq $incognito) {'Not managed'} else {$incognito}) (1=Disabled)" "CIS-L2"
+
+    # 82.7 DNS over HTTPS
+    $dnsOverHttps = Get-RegValue $chromePolPath "DnsOverHttpsMode"
+    $s = if ($dnsOverHttps -eq "secure" -or $dnsOverHttps -eq "automatic") { "PASS" } else { "INFO" }
+    Add-Result "82.7" "Chrome DNS-over-HTTPS Mode" $s "DnsOverHttpsMode: $(if ($null -eq $dnsOverHttps) {'Not managed'} else {$dnsOverHttps})" "CE+"
+
+    # 82.8 Third-party cookies
+    $blockCookies = Get-RegValue $chromePolPath "BlockThirdPartyCookies"
+    $s = if ($blockCookies -eq 1) { "PASS" } else { "WARN" }
+    Add-Result "82.8" "Chrome Block Third-Party Cookies" $s "BlockThirdPartyCookies: $(if ($null -eq $blockCookies) {'Not managed'} else {$blockCookies})" "CIS-L2"
+}
+
+# ============================================================
+#  SECTION 83: MOZILLA FIREFOX ENTERPRISE POLICY  [CIS-L2 | CE+]
+# ============================================================
+Write-SectionHeader "83. MOZILLA FIREFOX ENTERPRISE POLICY" "CIS-L2 | CE+"
+
+$ffPolPath = "HKLM:\SOFTWARE\Policies\Mozilla\Firefox"
+$ffInstalled = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -match "Mozilla Firefox" }) -or `
+               (Get-ItemProperty "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -match "Mozilla Firefox" })
+
+if (-not $ffInstalled) {
+    Add-Result "83.1" "Firefox Installation Status" "INFO" "Mozilla Firefox not detected - skipping Firefox policy checks" "CIS-L2"
+} else {
+    Add-Result "83.1" "Firefox Installation Status" "INFO" "Mozilla Firefox detected - checking enterprise policies" "CIS-L2"
+
+    # 83.2 Disable Password Manager
+    $ffPwdMgr = Get-RegValue "$ffPolPath" "OfferToSaveLogins"
+    $s = if ($ffPwdMgr -eq 0) { "PASS" } else { "WARN" }
+    Add-Result "83.2" "Firefox Password Manager Disabled" $s "OfferToSaveLogins: $(if ($null -eq $ffPwdMgr) {'Not managed'} else {$ffPwdMgr}) (0=Disabled)" "CIS-L2"
+
+    # 83.3 Auto-Update
+    $ffUpdate = Get-RegValue "$ffPolPath" "DisableAppUpdate"
+    $s = if ($null -eq $ffUpdate -or $ffUpdate -eq 0) { "PASS" } else { "FAIL" }
+    Add-Result "83.3" "Firefox Auto-Update Enabled" $s "DisableAppUpdate: $(if ($null -eq $ffUpdate) {'Not set (updates enabled)'} else {$ffUpdate}) (1=Updates disabled)" "CE+"
+
+    # 83.4 Extension management
+    $ffExtBlock = Get-RegValue "$ffPolPath\ExtensionSettings" "*"
+    $s = if ($null -ne $ffExtBlock) { "PASS" } else { "WARN" }
+    Add-Result "83.4" "Firefox Extension Management" $s "ExtensionSettings policy: $(if ($null -ne $ffExtBlock) {'Configured'} else {'Not managed - extensions unrestricted'})" "CIS-L2"
+
+    # 83.5 Telemetry
+    $ffTelemetry = Get-RegValue "$ffPolPath" "DisableTelemetry"
+    $s = if ($ffTelemetry -eq 1) { "PASS" } else { "INFO" }
+    Add-Result "83.5" "Firefox Telemetry Disabled" $s "DisableTelemetry: $(if ($null -eq $ffTelemetry) {'Not managed'} else {$ffTelemetry})" "CIS-L2"
+
+    # 83.6 DNS over HTTPS
+    $ffDoh = Get-RegValue "$ffPolPath\DNSOverHTTPS" "Enabled"
+    $s = if ($ffDoh -eq 1) { "PASS" } else { "INFO" }
+    Add-Result "83.6" "Firefox DNS-over-HTTPS" $s "DNSOverHTTPS\\Enabled: $(if ($null -eq $ffDoh) {'Not managed'} else {$ffDoh})" "CE+"
+
+    # 83.7 Disable Pocket
+    $ffPocket = Get-RegValue "$ffPolPath" "DisablePocket"
+    $s = if ($ffPocket -eq 1) { "PASS" } else { "INFO" }
+    Add-Result "83.7" "Firefox Pocket Disabled" $s "DisablePocket: $(if ($null -eq $ffPocket) {'Not managed'} else {$ffPocket})" "CIS-L2"
+}
+
+# ============================================================
+#  SECTION 84: DRIVER & FIRMWARE SECURITY  [CIS-L2 | CE+]
+# ============================================================
+Write-SectionHeader "84. DRIVER & FIRMWARE SECURITY" "CIS-L2 | CE+"
+
+# 84.1 Vulnerable Driver Blocklist
+$vdblEnable = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\CI\Config" "VulnerableDriverBlocklistEnable"
+$s = if ($vdblEnable -eq 1) { "PASS" } else { "FAIL" }
+Add-Result "84.1" "Vulnerable Driver Blocklist Enabled" $s "VulnerableDriverBlocklistEnable: $(if ($null -eq $vdblEnable) {'Not configured'} else {$vdblEnable}) (1=Enabled)" "CIS-L2"
+
+# 84.2 Hypervisor-Enforced Code Integrity (HVCI)
+$hvci = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity" "Enabled"
+$s = if ($hvci -eq 1) { "PASS" } else { "WARN" }
+Add-Result "84.2" "HVCI (Memory Integrity) Enabled" $s "HypervisorEnforcedCodeIntegrity: $(if ($null -eq $hvci) {'Not configured'} else {$hvci}) (1=Enabled)" "CIS-L2"
+
+# 84.3 Secure Launch (DRTM)
+$secureLaunch = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\DeviceGuard" "RequirePlatformSecurityFeatures"
+$s = if ($secureLaunch -ge 1) { "PASS" } else { "INFO" }
+Add-Result "84.3" "Secure Launch / DRTM Configuration" $s "RequirePlatformSecurityFeatures: $(if ($null -eq $secureLaunch) {'Not configured'} else {$secureLaunch}) (1=VBS, 3=VBS+Secure Launch)" "CIS-L2"
+
+# 84.4 Unsigned driver detection
+$unsignedDrivers = @()
+try {
+    $driverInfo = Get-CimInstance Win32_PnPSignedDriver -ErrorAction SilentlyContinue | Where-Object { $_.IsSigned -eq $false -and $_.DeviceName }
+    if ($driverInfo) { $unsignedDrivers = @($driverInfo | Select-Object -First 10) }
+} catch { }
+$unsignedCount = $unsignedDrivers.Count
+if ($unsignedCount -eq 0) {
+    Add-Result "84.4" "No Unsigned Drivers Detected" "PASS" "All enumerated PnP drivers are signed" "CE+"
+} else {
+    $unsignedList = ($unsignedDrivers | ForEach-Object { $_.DeviceName }) -join "; "
+    Add-Result "84.4" "No Unsigned Drivers Detected" "WARN" "$unsignedCount unsigned driver(s) found: $unsignedList" "CE+"
+}
+
+# 84.5 Code Integrity policy
+$ciPolicy = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\CI" "ActivePolicyGuid"
+$s = if ($null -ne $ciPolicy) { "PASS" } else { "INFO" }
+Add-Result "84.5" "Code Integrity Policy Active" $s "ActivePolicyGuid: $(if ($null -ne $ciPolicy) {$ciPolicy} else {'No active CI policy (WDAC not enforced)'})" "CIS-L2"
+
+# ============================================================
+#  SECTION 85: CERTIFICATE STORE AUDIT  [CIS-L2 | CE+]
+# ============================================================
+Write-SectionHeader "85. CERTIFICATE STORE AUDIT" "CIS-L2 | CE+"
+
+# 85.1 Expired certificates in Trusted Root
+$expiredRoots = @()
+try {
+    $roots = Get-ChildItem Cert:\LocalMachine\Root -ErrorAction SilentlyContinue
+    $expiredRoots = @($roots | Where-Object { $_.NotAfter -lt (Get-Date) })
+} catch { }
+$s = if ($expiredRoots.Count -eq 0) { "PASS" } else { "WARN" }
+$expDetail = if ($expiredRoots.Count -gt 0) { ($expiredRoots | Select-Object -First 5 | ForEach-Object { "$($_.Subject -replace 'CN=','') (expired $($_.NotAfter.ToString('yyyy-MM-dd')))" }) -join "; " } else { "None" }
+Add-Result "85.1" "No Expired Root CA Certificates" $s "$($expiredRoots.Count) expired cert(s) in Trusted Root store: $expDetail" "CIS-L2"
+
+# 85.2 Self-signed certificates in Trusted Root (non-Microsoft)
+$selfSignedRoots = @()
+try {
+    $selfSignedRoots = @($roots | Where-Object {
+        $_.Subject -eq $_.Issuer -and
+        $_.Subject -notmatch "Microsoft|Windows|Thawte|VeriSign|DigiCert|GlobalSign|Comodo|GeoTrust|Symantec|Entrust|GoDaddy|StartCom|USERTrust|Baltimore|Certum|QuoVadis|ISRG|Sectigo|Amazon|Google Trust|Apple"
+    })
+} catch { }
+$s = if ($selfSignedRoots.Count -eq 0) { "PASS" } else { "WARN" }
+$ssDetail = if ($selfSignedRoots.Count -gt 0) { ($selfSignedRoots | Select-Object -First 5 | ForEach-Object { $_.Subject -replace 'CN=','' }) -join "; " } else { "None" }
+Add-Result "85.2" "No Suspicious Self-Signed Root CAs" $s "$($selfSignedRoots.Count) non-standard self-signed CA(s): $ssDetail" "CIS-L2"
+
+# 85.3 Weak algorithm certificates (SHA-1)
+$weakCerts = @()
+try {
+    $allCerts = @(Get-ChildItem Cert:\LocalMachine\Root -ErrorAction SilentlyContinue) +
+                @(Get-ChildItem Cert:\LocalMachine\My -ErrorAction SilentlyContinue)
+    $weakCerts = @($allCerts | Where-Object { $_.SignatureAlgorithm.FriendlyName -match "sha1|md5" -and $_.NotAfter -gt (Get-Date) })
+} catch { }
+$s = if ($weakCerts.Count -eq 0) { "PASS" } else { "WARN" }
+Add-Result "85.3" "No Weak Algorithm Certificates" $s "$($weakCerts.Count) cert(s) using SHA-1/MD5 still valid" "CE+"
+
+# 85.4 Personal certificate store audit
+$personalCerts = @()
+try {
+    $personalCerts = @(Get-ChildItem Cert:\LocalMachine\My -ErrorAction SilentlyContinue)
+} catch { }
+$expiredPersonal = @($personalCerts | Where-Object { $_.NotAfter -lt (Get-Date) })
+$s = if ($expiredPersonal.Count -eq 0) { "PASS" } else { "WARN" }
+Add-Result "85.4" "No Expired Personal Certificates" $s "$($personalCerts.Count) personal cert(s), $($expiredPersonal.Count) expired" "CIS-L2"
+
+# 85.5 Certificate revocation checking
+$revCheck = Get-RegValue "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WinTrust\Trust Providers\Software Publishing" "State"
+$s = if ($null -ne $revCheck -and ($revCheck -band 0x00020000) -ne 0) { "WARN" } else { "PASS" }
+Add-Result "85.5" "Certificate Revocation Checking" $s "Software Publishing State: $(if ($null -eq $revCheck) {'Default (enabled)'} else {"0x$($revCheck.ToString('X'))"})" "CE+"
+
+# ============================================================
+#  SECTION 86: LOCAL PRIVILEGE ESCALATION RISK  [CIS-L2 | CE+]
+# ============================================================
+Write-SectionHeader "86. LOCAL PRIVILEGE ESCALATION RISK" "CIS-L2 | CE+"
+
+# 86.1 AlwaysInstallElevated (User)
+$aieUser = Get-RegValue "HKCU:\SOFTWARE\Policies\Microsoft\Windows\Installer" "AlwaysInstallElevated"
+$s = if ($null -eq $aieUser -or $aieUser -eq 0) { "PASS" } else { "FAIL" }
+Add-Result "86.1" "AlwaysInstallElevated (User)" $s "HKCU AlwaysInstallElevated: $(if ($null -eq $aieUser) {'Not set (safe)'} else {$aieUser}) (1=CRITICAL RISK)" "CIS-L2"
+
+# 86.2 AlwaysInstallElevated (Machine)
+$aieMachine = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Installer" "AlwaysInstallElevated"
+$s = if ($null -eq $aieMachine -or $aieMachine -eq 0) { "PASS" } else { "FAIL" }
+Add-Result "86.2" "AlwaysInstallElevated (Machine)" $s "HKLM AlwaysInstallElevated: $(if ($null -eq $aieMachine) {'Not set (safe)'} else {$aieMachine}) (1=CRITICAL RISK)" "CIS-L2"
+
+# 86.3 Unquoted service paths
+$unquotedSvcs = @()
+try {
+    $services = Get-CimInstance Win32_Service -ErrorAction SilentlyContinue |
+        Where-Object { $_.PathName -and $_.PathName -notmatch '^"' -and $_.PathName -notmatch '^[A-Za-z]:\\Windows\\' -and $_.PathName -match ' ' }
+    if ($services) { $unquotedSvcs = @($services | Select-Object Name, PathName -First 10) }
+} catch { }
+$s = if ($unquotedSvcs.Count -eq 0) { "PASS" } else { "FAIL" }
+$uqDetail = if ($unquotedSvcs.Count -gt 0) { ($unquotedSvcs | ForEach-Object { "$($_.Name): $($_.PathName)" }) -join "; " } else { "None found" }
+Add-Result "86.3" "No Unquoted Service Paths" $s "$($unquotedSvcs.Count) unquoted path(s): $uqDetail" "CE+"
+
+# 86.4 World-writable directories in PATH
+$writablePaths = @()
+try {
+    $pathDirs = ($env:PATH -split ";") | Where-Object { $_ -and (Test-Path $_) -and $_ -notmatch "^[A-Za-z]:\\Windows" }
+    foreach ($dir in $pathDirs) {
+        try {
+            $acl = Get-Acl $dir -ErrorAction SilentlyContinue
+            $worldWrite = $acl.Access | Where-Object {
+                $_.IdentityReference -match "Everyone|BUILTIN\\Users|Authenticated Users" -and
+                $_.FileSystemRights -match "Write|FullControl|Modify" -and
+                $_.AccessControlType -eq "Allow"
+            }
+            if ($worldWrite) { $writablePaths += $dir }
+        } catch { }
+    }
+} catch { }
+$s = if ($writablePaths.Count -eq 0) { "PASS" } else { "FAIL" }
+Add-Result "86.4" "No World-Writable Dirs in PATH" $s "$($writablePaths.Count) writable PATH dir(s): $(if ($writablePaths.Count -gt 0) {$writablePaths -join '; '} else {'None'})" "CE+"
+
+# 86.5 Services running as SYSTEM with writable executables
+$writableSysExes = @()
+try {
+    $sysSvcs = Get-CimInstance Win32_Service -ErrorAction SilentlyContinue |
+        Where-Object { $_.StartMode -eq "Auto" -and $_.StartName -match "LocalSystem|LocalService|NetworkService" -and $_.PathName }
+    foreach ($svc in ($sysSvcs | Select-Object -First 50)) {
+        $exePath = ($svc.PathName -replace '"','') -replace '\s+-.+$',''
+        if ($exePath -and (Test-Path $exePath -ErrorAction SilentlyContinue)) {
+            try {
+                $acl = Get-Acl $exePath -ErrorAction SilentlyContinue
+                $worldWrite = $acl.Access | Where-Object {
+                    $_.IdentityReference -match "Everyone|BUILTIN\\Users|Authenticated Users" -and
+                    $_.FileSystemRights -match "Write|FullControl|Modify" -and
+                    $_.AccessControlType -eq "Allow"
+                }
+                if ($worldWrite) { $writableSysExes += "$($svc.Name): $exePath" }
+            } catch { }
+        }
+    }
+} catch { }
+$s = if ($writableSysExes.Count -eq 0) { "PASS" } else { "FAIL" }
+Add-Result "86.5" "No Writable SYSTEM Service Exes" $s "$($writableSysExes.Count) writable SYSTEM exe(s): $(if ($writableSysExes.Count -gt 0) {($writableSysExes | Select-Object -First 5) -join '; '} else {'None'})" "CE+"
+
+# 86.6 Cached credentials
+$cachedCreds = @()
+try {
+    $cmdkey = cmdkey /list 2>$null
+    if ($cmdkey) {
+        $cachedCreds = @($cmdkey | Where-Object { $_ -match "Target:" -and $_ -notmatch "virtualapp|WindowsLive" })
+    }
+} catch { }
+$s = if ($cachedCreds.Count -eq 0) { "PASS" } else { "WARN" }
+Add-Result "86.6" "Cached Credential Review" $s "$($cachedCreds.Count) cached credential(s) found (review for stale/unnecessary entries)" "CIS-L2"
+
+# ============================================================
+#  SECTION 87: NETWORK SECURITY POSTURE  [CIS-L2 | CE+]
+# ============================================================
+Write-SectionHeader "87. NETWORK SECURITY POSTURE" "CIS-L2 | CE+"
+
+# 87.1 DNS-over-HTTPS (system-level)
+$dohEnabled = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\Dnscache\Parameters" "EnableAutoDoh"
+$s = if ($dohEnabled -ge 2) { "PASS" } elseif ($dohEnabled -eq 1) { "WARN" } else { "INFO" }
+Add-Result "87.1" "DNS-over-HTTPS (System DoH)" $s "EnableAutoDoh: $(if ($null -eq $dohEnabled) {'Not configured'} else {$dohEnabled}) (2=Always, 1=Auto-upgrade, 0=Off)" "CE+"
+
+# 87.2 Proxy configuration
+$proxyEnable = Get-RegValue "HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings" "ProxyEnable"
+$proxyServer = Get-RegValue "HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings" "ProxyServer"
+$pacUrl = Get-RegValue "HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings" "AutoConfigURL"
+$s = "INFO"
+$proxyDetail = "Proxy: $(if ($proxyEnable -eq 1) {"Enabled ($proxyServer)"} else {'Disabled'})"
+if ($pacUrl) { $proxyDetail += " | PAC: $pacUrl" }
+Add-Result "87.2" "Proxy Configuration Review" $s $proxyDetail "CIS-L2"
+
+# 87.3 Wi-Fi auto-connect to open networks
+$wifiAutoConnect = Get-RegValue "HKLM:\SOFTWARE\Microsoft\WcmSvc\wifinetworkmanager\config" "AutoConnectAllowedOEM"
+$s = if ($wifiAutoConnect -eq 0) { "PASS" } else { "WARN" }
+Add-Result "87.3" "Wi-Fi Auto-Connect Restricted" $s "AutoConnectAllowedOEM: $(if ($null -eq $wifiAutoConnect) {'Not managed (auto-connect may be enabled)'} else {$wifiAutoConnect}) (0=Disabled)" "CE+"
+
+# 87.4 SMB signing (client-side)
+$smbSigning = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\LanmanWorkstation\Parameters" "RequireSecuritySignature"
+$s = if ($smbSigning -eq 1) { "PASS" } else { "FAIL" }
+Add-Result "87.4" "SMB Client Signing Required" $s "RequireSecuritySignature: $(if ($null -eq $smbSigning) {'Not configured'} else {$smbSigning}) (1=Required)" "CIS-L2"
+
+# 87.5 LLMNR disabled
+$llmnr = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\DNSClient" "EnableMulticast"
+$s = if ($llmnr -eq 0) { "PASS" } else { "WARN" }
+Add-Result "87.5" "LLMNR Disabled" $s "EnableMulticast: $(if ($null -eq $llmnr) {'Not configured (LLMNR enabled by default)'} else {$llmnr}) (0=Disabled)" "CIS-L2"
+
+# 87.6 NetBIOS over TCP/IP
+$nbns = @()
+try {
+    $adapters = Get-CimInstance Win32_NetworkAdapterConfiguration -ErrorAction SilentlyContinue | Where-Object { $_.IPEnabled -eq $true }
+    $nbns = @($adapters | Where-Object { $_.TcpipNetbiosOptions -ne 2 })
+} catch { }
+$s = if ($nbns.Count -eq 0) { "PASS" } else { "WARN" }
+Add-Result "87.6" "NetBIOS over TCP/IP Disabled" $s "$($nbns.Count) adapter(s) with NetBIOS enabled (recommend disable to prevent poisoning)" "CIS-L2"
+
+# 87.7 mDNS (Bonjour) disabled
+$mdns = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\Dnscache\Parameters" "EnableMDNS"
+$s = if ($mdns -eq 0) { "PASS" } else { "WARN" }
+Add-Result "87.7" "mDNS Disabled" $s "EnableMDNS: $(if ($null -eq $mdns) {'Not configured (mDNS enabled by default)'} else {$mdns}) (0=Disabled)" "CIS-L2"
+
+# 87.8 VPN client presence
+$vpnClients = @()
+try {
+    $vpnServices = @(
+        @{Name="PanGPS"; Label="GlobalProtect"},
+        @{Name="vpnagent"; Label="Cisco AnyConnect"},
+        @{Name="ZscalerTunnel"; Label="Zscaler"},
+        @{Name="OpenVPNService"; Label="OpenVPN"},
+        @{Name="WireGuardTunnel"; Label="WireGuard"},
+        @{Name="NordVPN"; Label="NordVPN"}
+    )
+    foreach ($vpn in $vpnServices) {
+        $svc = Get-Service -Name $vpn.Name -ErrorAction SilentlyContinue
+        if ($svc) { $vpnClients += "$($vpn.Label) ($($svc.Status))" }
+    }
+} catch { }
+$s = if ($vpnClients.Count -gt 0) { "INFO" } else { "INFO" }
+Add-Result "87.8" "VPN Client Detection" $s "$(if ($vpnClients.Count -gt 0) {$vpnClients -join '; '} else {'No common VPN clients detected'})" "CE+"
+
+# ============================================================
+#  SECTION 88: BACKUP & RECOVERY READINESS  [CE+ | NCSC]
+# ============================================================
+Write-SectionHeader "88. BACKUP & RECOVERY READINESS" "CE+ | NCSC"
+
+# 88.1 Volume Shadow Copy service
+$vss = Get-Service -Name VSS -ErrorAction SilentlyContinue
+$s = if ($vss -and $vss.StartType -ne "Disabled") { "PASS" } else { "WARN" }
+Add-Result "88.1" "Volume Shadow Copy Service" $s "VSS: $(if ($vss) {"$($vss.Status) / $($vss.StartType)"} else {'Not found'})" "CE+"
+
+# 88.2 System Restore enabled
+$srEnabled = Get-RegValue "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SystemRestore" "RPSessionInterval"
+$srDisabled = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\SystemRestore" "DisableSR"
+$s = if ($srDisabled -eq 1) { "WARN" } else { "PASS" }
+Add-Result "88.2" "System Restore Enabled" $s "DisableSR: $(if ($null -eq $srDisabled) {'Not set (enabled by default)'} else {$srDisabled}) | RPSessionInterval: $(if ($null -eq $srEnabled) {'Default'} else {$srEnabled})" "CE+"
+
+# 88.3 System Restore points age
+$latestRP = $null
+try {
+    $rps = Get-ComputerRestorePoint -ErrorAction SilentlyContinue
+    if ($rps) {
+        $latestRP = $rps | Sort-Object CreationTime -Descending | Select-Object -First 1
+    }
+} catch { }
+if ($null -ne $latestRP) {
+    $rpAge = ((Get-Date) - $latestRP.CreationTime).Days
+    $s = if ($rpAge -le 7) { "PASS" } elseif ($rpAge -le 30) { "WARN" } else { "FAIL" }
+    Add-Result "88.3" "Recent System Restore Point" $s "Latest restore point: $($latestRP.CreationTime.ToString('yyyy-MM-dd')) ($rpAge days ago)" "CE+"
+} else {
+    Add-Result "88.3" "Recent System Restore Point" "WARN" "No system restore points found" "CE+"
+}
+
+# 88.4 OneDrive Known Folder Move (for Entra-joined devices)
+if ($Script:EntraJoined -or $Script:HybridJoined) {
+    $kfmDesktop = Get-RegValue "HKCU:\Software\Microsoft\OneDrive\Accounts\Business1" "KfmFoldersProtectedNow"
+    $kfmState = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\OneDrive" "KFMSilentOptIn"
+    $s = if ($null -ne $kfmState -or $null -ne $kfmDesktop) { "PASS" } else { "WARN" }
+    Add-Result "88.4" "OneDrive Known Folder Move" $s "KFM Policy: $(if ($null -ne $kfmState) {'Configured'} else {'Not configured'}) | Protected: $(if ($null -ne $kfmDesktop) {$kfmDesktop} else {'Unknown'})" "CE+"
+} else {
+    Add-Result "88.4" "OneDrive Known Folder Move" "INFO" "Not Entra-joined - OneDrive KFM check not applicable" "CE+"
+}
+
+# 88.5 Recovery partition
+$recoveryPart = $null
+try {
+    $recoveryPart = Get-CimInstance Win32_Volume -ErrorAction SilentlyContinue |
+        Where-Object { $_.Label -match "Recovery" -or $_.DriveType -eq 3 -and $_.Capacity -lt 2GB -and $_.Capacity -gt 100MB }
+} catch { }
+$s = if ($recoveryPart) { "PASS" } else { "WARN" }
+Add-Result "88.5" "Recovery Partition Present" $s "$(if ($recoveryPart) {'Recovery partition detected'} else {'No recovery partition found - recovery may require external media'})" "CE+"
+
+# 88.6 Windows Backup service
+$wbSvc = Get-Service -Name SDRSVC -ErrorAction SilentlyContinue
+$wbSvc2 = Get-Service -Name wbengine -ErrorAction SilentlyContinue
+$s = if (($wbSvc -and $wbSvc.StartType -ne "Disabled") -or ($wbSvc2 -and $wbSvc2.StartType -ne "Disabled")) { "PASS" } else { "WARN" }
+Add-Result "88.6" "Windows Backup Service Available" $s "SDRSVC: $(if ($wbSvc) {"$($wbSvc.StartType)"} else {'N/A'}) | wbengine: $(if ($wbSvc2) {"$($wbSvc2.StartType)"} else {'N/A'})" "NCSC"
 
 # ============================================================
 #  CLEAN UP
