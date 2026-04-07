@@ -225,6 +225,426 @@ $TrackedApps = @(
         keyword          = "foxit pdf reader"
         cpe_patterns     = @("foxit:pdf_reader", "foxit:reader")
     }
+    @{
+        app              = "Foxit PDF Editor"
+        registry_pattern = "Foxit.*Editor"
+        keyword          = "foxit pdf editor"
+        cpe_patterns     = @("foxit:pdf_editor")
+    }
+    @{
+        app              = "Brave Browser"
+        registry_pattern = "Brave"
+        keyword          = "brave browser"
+        cpe_patterns     = @("brave:brave", "brave:browser")
+    }
+    @{
+        app              = "Opera Browser"
+        registry_pattern = "Opera"
+        keyword          = "opera browser"
+        cpe_patterns     = @("opera:opera_browser", "opera:opera")
+    }
+    @{
+        app              = "Vivaldi Browser"
+        registry_pattern = "Vivaldi"
+        keyword          = "vivaldi browser"
+        cpe_patterns     = @("vivaldi:vivaldi")
+    }
+    @{
+        app              = "Mozilla Thunderbird"
+        registry_pattern = "Mozilla Thunderbird"
+        keyword          = "mozilla thunderbird"
+        cpe_patterns     = @("mozilla:thunderbird")
+    }
+    @{
+        app              = "Slack"
+        registry_pattern = "Slack"
+        keyword          = "slack desktop"
+        cpe_patterns     = @("slack:slack")
+    }
+    @{
+        app              = "Signal Desktop"
+        registry_pattern = "Signal"
+        keyword          = "signal desktop"
+        cpe_patterns     = @("signal:signal-desktop", "signal:signal_desktop")
+    }
+    @{
+        app              = "Telegram Desktop"
+        registry_pattern = "Telegram"
+        keyword          = "telegram desktop"
+        cpe_patterns     = @("telegram:telegram_desktop", "telegram:telegram")
+    }
+    @{
+        app              = "WinSCP"
+        registry_pattern = "WinSCP"
+        keyword          = "winscp"
+        cpe_patterns     = @("winscp:winscp")
+    }
+    @{
+        app              = "OpenVPN"
+        registry_pattern = "OpenVPN"
+        keyword          = "openvpn"
+        cpe_patterns     = @("openvpn:openvpn")
+    }
+    @{
+        app              = "VMware Workstation"
+        registry_pattern = "VMware Workstation"
+        keyword          = "vmware workstation"
+        cpe_patterns     = @("vmware:workstation")
+    }
+    @{
+        app              = "VirtualBox"
+        registry_pattern = "Oracle VM VirtualBox"
+        keyword          = "oracle virtualbox"
+        cpe_patterns     = @("oracle:vm_virtualbox")
+    }
+    @{
+        app              = "Docker Desktop"
+        registry_pattern = "Docker Desktop"
+        keyword          = "docker desktop"
+        cpe_patterns     = @("docker:desktop", "docker:docker_desktop")
+    }
+    @{
+        app              = "Postman"
+        registry_pattern = "Postman"
+        keyword          = "postman"
+        cpe_patterns     = @("postman:postman")
+    }
+    @{
+        app              = "Sublime Text"
+        registry_pattern = "Sublime Text"
+        keyword          = "sublime text"
+        cpe_patterns     = @("sublimetext:sublime_text", "sublimehq:sublime_text")
+    }
+    @{
+        app              = "Tor Browser"
+        registry_pattern = "Tor Browser"
+        keyword          = "tor browser"
+        cpe_patterns     = @("torproject:tor_browser", "torproject:tor")
+    }
+    @{
+        app              = "AnyDesk"
+        registry_pattern = "AnyDesk"
+        keyword          = "anydesk"
+        cpe_patterns     = @("anydesk:anydesk")
+    }
+    @{
+        app              = "RustDesk"
+        registry_pattern = "RustDesk"
+        keyword          = "rustdesk"
+        cpe_patterns     = @("rustdesk:rustdesk")
+    }
+    @{
+        app              = "Cisco Webex"
+        registry_pattern = "Cisco Webex"
+        keyword          = "cisco webex"
+        cpe_patterns     = @("cisco:webex_meetings", "cisco:webex")
+    }
+    @{
+        app              = "GoTo Meeting"
+        registry_pattern = "GoTo Meeting"
+        keyword          = "gotomeeting"
+        cpe_patterns     = @("gotomeeting:gotomeeting", "logmein:gotomeeting")
+    }
+    @{
+        app              = "KeePassXC"
+        registry_pattern = "KeePassXC"
+        keyword          = "keepassxc"
+        cpe_patterns     = @("keepassxc:keepassxc")
+    }
+    @{
+        app              = "Bitwarden"
+        registry_pattern = "Bitwarden"
+        keyword          = "bitwarden"
+        cpe_patterns     = @("bitwarden:desktop", "bitwarden:bitwarden")
+    }
+    @{
+        app              = "Paint.NET"
+        registry_pattern = "paint\\.net"
+        keyword          = "paint.net"
+        cpe_patterns     = @("dotpdn:paint.net", "getpaint:paint.net")
+    }
+    @{
+        app              = "GIMP"
+        registry_pattern = "GIMP"
+        keyword          = "gimp"
+        cpe_patterns     = @("gimp:gimp")
+    }
+    @{
+        app              = "Inkscape"
+        registry_pattern = "Inkscape"
+        keyword          = "inkscape"
+        cpe_patterns     = @("inkscape:inkscape")
+    }
+    @{
+        app              = "OBS Studio"
+        registry_pattern = "OBS Studio"
+        keyword          = "obs studio"
+        cpe_patterns     = @("obsproject:obs_studio")
+    }
+    @{
+        app              = "HandBrake"
+        registry_pattern = "HandBrake"
+        keyword          = "handbrake"
+        cpe_patterns     = @("handbrake:handbrake")
+    }
+    @{
+        app              = "Audacity"
+        registry_pattern = "Audacity"
+        keyword          = "audacity"
+        cpe_patterns     = @("audacityteam:audacity")
+    }
+    @{
+        app              = "qBittorrent"
+        registry_pattern = "qBittorrent"
+        keyword          = "qbittorrent"
+        cpe_patterns     = @("qbittorrent:qbittorrent")
+    }
+    @{
+        app              = "Blender"
+        registry_pattern = "Blender"
+        keyword          = "blender"
+        cpe_patterns     = @("blender:blender")
+    }
+    @{
+        app              = "Calibre"
+        registry_pattern = "calibre"
+        keyword          = "calibre ebook"
+        cpe_patterns     = @("calibre-ebook:calibre")
+    }
+    @{
+        app              = "Sumatra PDF"
+        registry_pattern = "SumatraPDF"
+        keyword          = "sumatrapdf"
+        cpe_patterns     = @("sumatrapdfreader:sumatrapdf")
+    }
+    @{
+        app              = "IrfanView"
+        registry_pattern = "IrfanView"
+        keyword          = "irfanview"
+        cpe_patterns     = @("irfanview:irfanview")
+    }
+    @{
+        app              = "ShareX"
+        registry_pattern = "ShareX"
+        keyword          = "sharex"
+        cpe_patterns     = @("getsharex:sharex")
+    }
+    @{
+        app              = "PowerShell 7"
+        registry_pattern = "PowerShell 7"
+        keyword          = "powershell"
+        cpe_patterns     = @("microsoft:powershell", "microsoft:powershell_core")
+    }
+    @{
+        app              = ".NET Runtime"
+        registry_pattern = "Microsoft \\.NET Runtime"
+        keyword          = "microsoft .net"
+        cpe_patterns     = @("microsoft:.net", "microsoft:.net_framework")
+    }
+    @{
+        app              = "Go Programming Language"
+        registry_pattern = "Go Programming Language"
+        keyword          = "golang"
+        cpe_patterns     = @("golang:go")
+    }
+    @{
+        app              = "Rust"
+        registry_pattern = "^Rust "
+        keyword          = "rust programming language"
+        cpe_patterns     = @("rust-lang:rust")
+    }
+    @{
+        app              = "Ruby"
+        registry_pattern = "Ruby"
+        keyword          = "ruby programming language"
+        cpe_patterns     = @("ruby-lang:ruby")
+    }
+    @{
+        app              = "R for Windows"
+        registry_pattern = "R for Windows"
+        keyword          = "r project statistical computing"
+        cpe_patterns     = @("r-project:r")
+    }
+    @{
+        app              = "Grafana"
+        registry_pattern = "Grafana"
+        keyword          = "grafana"
+        cpe_patterns     = @("grafana:grafana")
+    }
+    @{
+        app              = "Elasticsearch"
+        registry_pattern = "Elasticsearch"
+        keyword          = "elasticsearch"
+        cpe_patterns     = @("elastic:elasticsearch")
+    }
+    @{
+        app              = "PostgreSQL"
+        registry_pattern = "PostgreSQL"
+        keyword          = "postgresql"
+        cpe_patterns     = @("postgresql:postgresql")
+    }
+    @{
+        app              = "MySQL"
+        registry_pattern = "MySQL Server"
+        keyword          = "mysql server"
+        cpe_patterns     = @("oracle:mysql", "mysql:mysql")
+    }
+    @{
+        app              = "MariaDB"
+        registry_pattern = "MariaDB"
+        keyword          = "mariadb"
+        cpe_patterns     = @("mariadb:mariadb")
+    }
+    @{
+        app              = "Apache HTTP Server"
+        registry_pattern = "Apache HTTP Server"
+        keyword          = "apache http server"
+        cpe_patterns     = @("apache:http_server")
+    }
+    @{
+        app              = "Nginx"
+        registry_pattern = "nginx"
+        keyword          = "nginx"
+        cpe_patterns     = @("f5:nginx", "nginx:nginx")
+    }
+    @{
+        app              = "cURL"
+        registry_pattern = "curl"
+        keyword          = "curl"
+        cpe_patterns     = @("haxx:curl", "haxx:libcurl")
+    }
+    @{
+        app              = "OpenSSL"
+        registry_pattern = "OpenSSL"
+        keyword          = "openssl"
+        cpe_patterns     = @("openssl:openssl")
+    }
+    @{
+        app              = "GPG4Win"
+        registry_pattern = "Gpg4win"
+        keyword          = "gpg4win"
+        cpe_patterns     = @("gpg4win:gpg4win", "gnupg:gnupg")
+    }
+    @{
+        app              = "WireGuard"
+        registry_pattern = "WireGuard"
+        keyword          = "wireguard"
+        cpe_patterns     = @("wireguard:wireguard")
+    }
+    @{
+        app              = "Nmap"
+        registry_pattern = "Nmap"
+        keyword          = "nmap"
+        cpe_patterns     = @("nmap:nmap")
+    }
+    @{
+        app              = "Visual Studio"
+        registry_pattern = "Microsoft Visual Studio 20"
+        keyword          = "microsoft visual studio"
+        cpe_patterns     = @("microsoft:visual_studio", "microsoft:visual_studio_2022", "microsoft:visual_studio_2019")
+    }
+    @{
+        app              = "JetBrains IntelliJ IDEA"
+        registry_pattern = "IntelliJ IDEA"
+        keyword          = "intellij idea"
+        cpe_patterns     = @("jetbrains:intellij_idea")
+    }
+    @{
+        app              = "JetBrains PyCharm"
+        registry_pattern = "JetBrains PyCharm"
+        keyword          = "jetbrains pycharm"
+        cpe_patterns     = @("jetbrains:pycharm")
+    }
+    @{
+        app              = "JetBrains WebStorm"
+        registry_pattern = "JetBrains WebStorm"
+        keyword          = "jetbrains webstorm"
+        cpe_patterns     = @("jetbrains:webstorm")
+    }
+    @{
+        app              = "Eclipse IDE"
+        registry_pattern = "Eclipse"
+        keyword          = "eclipse ide"
+        cpe_patterns     = @("eclipse:eclipse_ide")
+    }
+    @{
+        app              = "Terraform"
+        registry_pattern = "Terraform"
+        keyword          = "hashicorp terraform"
+        cpe_patterns     = @("hashicorp:terraform")
+    }
+    @{
+        app              = "Vagrant"
+        registry_pattern = "Vagrant"
+        keyword          = "hashicorp vagrant"
+        cpe_patterns     = @("hashicorp:vagrant")
+    }
+    @{
+        app              = "HashiCorp Packer"
+        registry_pattern = "Packer"
+        keyword          = "hashicorp packer"
+        cpe_patterns     = @("hashicorp:packer")
+    }
+    @{
+        app              = "HashiCorp Vault"
+        registry_pattern = "Vault"
+        keyword          = "hashicorp vault"
+        cpe_patterns     = @("hashicorp:vault")
+    }
+    @{
+        app              = "FFmpeg"
+        registry_pattern = "FFmpeg"
+        keyword          = "ffmpeg"
+        cpe_patterns     = @("ffmpeg:ffmpeg")
+    }
+    @{
+        app              = "ImageMagick"
+        registry_pattern = "ImageMagick"
+        keyword          = "imagemagick"
+        cpe_patterns     = @("imagemagick:imagemagick")
+    }
+    @{
+        app              = "Ghidra"
+        registry_pattern = "Ghidra"
+        keyword          = "ghidra nsa"
+        cpe_patterns     = @("nsa:ghidra")
+    }
+    @{
+        app              = "Sysinternals Suite"
+        registry_pattern = "Sysinternals"
+        keyword          = "sysinternals"
+        cpe_patterns     = @("microsoft:sysinternals")
+    }
+    @{
+        app              = "Microsoft SQL Server Management Studio"
+        registry_pattern = "SQL Server Management Studio"
+        keyword          = "sql server management studio"
+        cpe_patterns     = @("microsoft:sql_server_management_studio")
+    }
+    @{
+        app              = "DBeaver"
+        registry_pattern = "DBeaver"
+        keyword          = "dbeaver"
+        cpe_patterns     = @("dbeaver:dbeaver")
+    }
+    @{
+        app              = "PeaZip"
+        registry_pattern = "PeaZip"
+        keyword          = "peazip"
+        cpe_patterns     = @("peazip:peazip", "peazip_project:peazip")
+    }
+    @{
+        app              = "Greenshot"
+        registry_pattern = "Greenshot"
+        keyword          = "greenshot"
+        cpe_patterns     = @("greenshot:greenshot")
+    }
+    @{
+        app              = "VeraCrypt"
+        registry_pattern = "VeraCrypt"
+        keyword          = "veracrypt"
+        cpe_patterns     = @("idrix:veracrypt")
+    }
 )
 
 # ============================================================
