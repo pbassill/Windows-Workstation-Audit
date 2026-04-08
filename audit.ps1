@@ -2,7 +2,7 @@
 <#
 .SYNOPSIS
     CIS Level 1 + Cyber Essentials + Cyber Essentials Plus + Entra ID / M365 Auditor
-    with NIST 800-53, ISO 27001, PCI-DSS, and DISA STIG cross-reference mappings
+    with NIST 800-53, ISO 27001, PCI-DSS, DISA STIG, and UK MoD DCC cross-reference mappings
     Author: Peter Bassill | OTY Heavy Industries
 .DESCRIPTION
     Comprehensive local Windows 10/11 audit covering:
@@ -15,6 +15,8 @@
       - Microsoft Defender for Endpoint (MDE)
       - Microsoft 365 / Office security configuration
       - Entra ID Conditional Access compliance
+      - UK MoD Defence Cyber Certification Level 2 (DCC L2)
+      - UK MoD Defence Cyber Certification Level 3 (DCC L3)
 
     The script is Entra ID-aware. When a device is detected as Entra joined,
     checks that are natively managed by Entra ID / Intune (e.g. password policy,
@@ -29,6 +31,8 @@
       cis2  - CIS Level 2 checks only
       ncsc  - NCSC alignment checks only
       entra - Entra ID / M365 checks only
+      dcc2  - UK MoD Defence Cyber Certification Level 2 only
+      dcc3  - UK MoD Defence Cyber Certification Level 3 only
 
 .PARAMETER PreviousReport
     Path to a previous audit JSON export file. When provided, the report
@@ -61,6 +65,8 @@
     .\audit.ps1 -Audit cis2
     .\audit.ps1 -Audit ncsc
     .\audit.ps1 -Audit entra
+    .\audit.ps1 -Audit dcc2
+    .\audit.ps1 -Audit dcc3
     .\audit.ps1 -PreviousReport "C:\audits\previous.json"
     .\audit.ps1 -Monitor -MonitorSchedule Daily
     .\audit.ps1 -Remediate
@@ -73,7 +79,7 @@
     WMI/CIM, and local tooling only so it works offline and without extra modules.
 #>
 param(
-    [ValidateSet("all","ce","cis1","cis2","ncsc","entra")]
+    [ValidateSet("all","ce","cis1","cis2","ncsc","entra","dcc2","dcc3")]
     [string]$Audit = "all",
 
     [string]$PreviousReport = "",
@@ -116,6 +122,8 @@ $Script:FrameworkFilter = switch ($Script:AuditScope) {
     "cis2"  { @("CIS-L2")         }
     "ncsc"  { @("NCSC")           }
     "entra" { @("EntraID")        }
+    "dcc2"  { @("DCC-L2")         }
+    "dcc3"  { @("DCC-L3")         }
     default { @()                 }   # empty = include everything
 }
 $Script:AuditLabel = switch ($Script:AuditScope) {
@@ -124,6 +132,8 @@ $Script:AuditLabel = switch ($Script:AuditScope) {
     "cis2"  { "CIS Level 2"           }
     "ncsc"  { "NCSC Alignment"        }
     "entra" { "Entra ID / M365"       }
+    "dcc2"  { "UK MoD DCC Level 2"    }
+    "dcc3"  { "UK MoD DCC Level 3"    }
     default { "Full Audit (all frameworks)" }
 }
 
@@ -215,6 +225,8 @@ $Script:ComplianceThresholds = @{
     "CE+"     = @{ Threshold = 100; Label = "Cyber Essentials (100%)"    }
     "NCSC"    = @{ Threshold = 85;  Label = "NCSC Alignment (85%)"       }
     "EntraID" = @{ Threshold = 90;  Label = "Entra ID / M365 (90%)"     }
+    "DCC-L2"  = @{ Threshold = 100; Label = "MoD DCC Level 2 (100%)"    }
+    "DCC-L3"  = @{ Threshold = 95;  Label = "MoD DCC Level 3 (95%)"     }
 }
 
 # ============================================================
@@ -230,6 +242,7 @@ function Write-Banner {
         "  CIS Level 1 & 2  |  Cyber Essentials  |  Cyber Essentials Plus",
         "  Microsoft Entra ID  |  Microsoft 365  |  Intune / MDM  |  NCSC",
         "  NIST 800-53  |  ISO 27001  |  PCI-DSS  |  DISA STIG",
+        "  UK MoD Defence Cyber Certification Level 2 & 3",
         "  Version $ScriptVersion",
         "  Audit Scope  : $($Script:AuditLabel)",
         "========================================================================",
@@ -5576,6 +5589,350 @@ $s = if (($wbSvc -and $wbSvc.StartType -ne "Disabled") -or ($wbSvc2 -and $wbSvc2
 Add-Result "88.6" "Windows Backup Service Available" $s "SDRSVC: $(if ($wbSvc) {"$($wbSvc.StartType)"} else {'N/A'}) | wbengine: $(if ($wbSvc2) {"$($wbSvc2.StartType)"} else {'N/A'})" "NCSC"
 
 # ============================================================
+#  SECTION 89: UK MOD DCC LEVEL 2  [DCC-L2]
+#  Defence Cyber Certification Level 2 -- Baseline Cyber Hygiene
+#  Aligned with MoD Def Stan 05-138 / Cyber Security Model (CSM)
+# ============================================================
+Write-SectionHeader "89. UK MOD DEFENCE CYBER CERTIFICATION LEVEL 2" "DCC-L2"
+
+# --- DCC L2 Domain 1: Boundary Firewalls and Internet Gateways ---
+
+# 89.1 Windows Firewall enabled (all profiles)
+$fwDomain  = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\DomainProfile" "EnableFirewall"
+$fwPrivate = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\StandardProfile" "EnableFirewall"
+$fwPublic  = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\PublicProfile" "EnableFirewall"
+$s = if ($fwDomain -eq 1 -and $fwPrivate -eq 1 -and $fwPublic -eq 1) { "PASS" } else { "FAIL" }
+Add-Result "89.1" "DCC L2: Firewall All Profiles" $s "Domain: $fwDomain | Private: $fwPrivate | Public: $fwPublic (all must be 1)" "DCC-L2"
+
+# 89.2 Default inbound block (all profiles)
+$fwDomainIn  = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\DomainProfile" "DefaultInboundAction"
+$fwPrivateIn = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\StandardProfile" "DefaultInboundAction"
+$fwPublicIn  = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\PublicProfile" "DefaultInboundAction"
+$s = if ($fwDomainIn -eq 1 -and $fwPrivateIn -eq 1 -and $fwPublicIn -eq 1) { "PASS" } else { "WARN" }
+Add-Result "89.2" "DCC L2: Default Inbound Block" $s "Domain: $(if ($null -eq $fwDomainIn) {'Not set'} else {$fwDomainIn}) | Private: $(if ($null -eq $fwPrivateIn) {'Not set'} else {$fwPrivateIn}) | Public: $(if ($null -eq $fwPublicIn) {'Not set'} else {$fwPublicIn}) (1=Block)" "DCC-L2"
+
+# 89.3 Remote Desktop disabled (DCC L2 restricts remote access)
+$rdpEnabled = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server" "fDenyTSConnections"
+$s = if ($rdpEnabled -eq 1) { "PASS" } else { "FAIL" }
+Add-Result "89.3" "DCC L2: RDP Disabled" $s "fDenyTSConnections: $(if ($null -eq $rdpEnabled) {'Not configured'} else {$rdpEnabled}) (1=Disabled)" "DCC-L2"
+
+# --- DCC L2 Domain 2: Secure Configuration ---
+
+# 89.4 SMBv1 disabled
+$smbV1 = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters" "SMB1"
+$s = if ($smbV1 -eq 0) { "PASS" } else { "FAIL" }
+Add-Result "89.4" "DCC L2: SMBv1 Disabled" $s "SMB1: $(if ($null -eq $smbV1) {'Not set (may be enabled)'} else {$smbV1}) (0=Disabled)" "DCC-L2"
+
+# 89.5 AutoRun disabled
+$autoRun = Get-RegValue "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer" "NoDriveTypeAutoRun"
+$s = if ($autoRun -eq 255) { "PASS" } else { "FAIL" }
+Add-Result "89.5" "DCC L2: AutoRun Disabled" $s "NoDriveTypeAutoRun: $(if ($null -eq $autoRun) {'Not configured'} else {$autoRun}) (255=All drives disabled)" "DCC-L2"
+
+# 89.6 Guest account disabled
+$guestAcct = Get-LocalUser -Name "Guest" -ErrorAction SilentlyContinue
+$s = if ($guestAcct -and -not $guestAcct.Enabled) { "PASS" } elseif (-not $guestAcct) { "PASS" } else { "FAIL" }
+Add-Result "89.6" "DCC L2: Guest Account Disabled" $s "Guest account: $(if ($guestAcct) { if ($guestAcct.Enabled) {'Enabled (RISK)'} else {'Disabled'} } else {'Not found'})" "DCC-L2"
+
+# 89.7 Admin account renamed (default Administrator should not exist or be renamed)
+$defaultAdmin = Get-LocalUser -ErrorAction SilentlyContinue | Where-Object { $_.SID.Value -match "-500$" }
+$adminRenamed = if ($defaultAdmin) { $defaultAdmin.Name -ne "Administrator" } else { $true }
+$s = if ($adminRenamed) { "PASS" } else { "WARN" }
+Add-Result "89.7" "DCC L2: Admin Account Renamed" $s "Built-in admin: $(if ($defaultAdmin) {$defaultAdmin.Name} else {'Not found'}) (should not be 'Administrator')" "DCC-L2"
+
+# 89.8 UAC enabled and at default or higher
+$uacEnabled = Get-RegValue "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" "EnableLUA"
+$s = if ($uacEnabled -eq 1) { "PASS" } else { "FAIL" }
+Add-Result "89.8" "DCC L2: UAC Enabled" $s "EnableLUA: $(if ($null -eq $uacEnabled) {'Not configured'} else {$uacEnabled}) (1=Enabled)" "DCC-L2"
+
+# 89.9 Secure Boot enabled
+$dccSecureBoot = try { Confirm-SecureBootUEFI -ErrorAction Stop } catch { $null }
+$s = if ($dccSecureBoot -eq $true) { "PASS" } else { "FAIL" }
+Add-Result "89.9" "DCC L2: Secure Boot Enabled" $s "Secure Boot: $(if ($dccSecureBoot -eq $true) {'Enabled'} elseif ($dccSecureBoot -eq $false) {'Disabled'} else {'Unknown/Not supported'})" "DCC-L2"
+
+# --- DCC L2 Domain 3: Access Control ---
+
+# 89.10 Password minimum length (DCC L2 requires >= 12)
+$pwMinLen = Get-SecEditValue "MinimumPasswordLength"
+$pwMinLenNum = if ($pwMinLen) { [int]$pwMinLen } else { 0 }
+$s = if ($pwMinLenNum -ge 12) { "PASS" } else { "FAIL" }
+Add-Result "89.10" "DCC L2: Password Min Length >=12" $s "MinimumPasswordLength: $pwMinLenNum (DCC L2 requires >=12)" "DCC-L2"
+
+# 89.11 Account lockout threshold (DCC L2 requires <= 10 attempts)
+$dccLockout = Get-SecEditValue "LockoutBadCount"
+$dccLockoutNum = if ($dccLockout) { [int]$dccLockout } else { 0 }
+$s = if ($dccLockoutNum -ge 1 -and $dccLockoutNum -le 10) { "PASS" } else { "FAIL" }
+Add-Result "89.11" "DCC L2: Account Lockout <=10" $s "LockoutBadCount: $(if ($dccLockoutNum -eq 0) {'Not configured (0=Never lockout)'} else {$dccLockoutNum}) (DCC L2: 1-10)" "DCC-L2"
+
+# 89.12 Screen lock timeout (DCC L2 requires <= 15 minutes)
+$scrTimeout = Get-RegValue "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" "InactivityTimeoutSecs"
+$scrTimeoutNum = if ($scrTimeout) { [int]$scrTimeout } else { 0 }
+$s = if ($scrTimeoutNum -ge 1 -and $scrTimeoutNum -le 900) { "PASS" } else { "FAIL" }
+Add-Result "89.12" "DCC L2: Screen Lock <=15 min" $s "InactivityTimeoutSecs: $(if ($scrTimeoutNum -eq 0) {'Not configured'} else {"$scrTimeoutNum secs ($([math]::Round($scrTimeoutNum/60,1)) min)"}) (DCC L2: <=900)" "DCC-L2"
+
+# --- DCC L2 Domain 4: Malware Protection ---
+
+# 89.13 Defender antivirus service running
+$dccDefender = Get-Service -Name WinDefend -ErrorAction SilentlyContinue
+$s = if ($dccDefender -and $dccDefender.Status -eq "Running") { "PASS" } else { "FAIL" }
+Add-Result "89.13" "DCC L2: AV Service Running" $s "WinDefend: $(if ($dccDefender) {"$($dccDefender.Status)"} else {'Not found'})" "DCC-L2"
+
+# 89.14 Defender real-time protection enabled
+$dccRTP = Get-RegValue "HKLM:\SOFTWARE\Microsoft\Windows Defender\Real-Time Protection" "DisableRealtimeMonitoring"
+$s = if ($null -eq $dccRTP -or $dccRTP -eq 0) { "PASS" } else { "FAIL" }
+Add-Result "89.14" "DCC L2: Real-Time Protection" $s "DisableRealtimeMonitoring: $(if ($null -eq $dccRTP) {'Not set (enabled by default)'} else {$dccRTP}) (0 or absent=Enabled)" "DCC-L2"
+
+# 89.15 Defender definition age (DCC L2 requires definitions updated within 7 days)
+$dccDefStatus = try { Get-MpComputerStatus -ErrorAction Stop } catch { $null }
+if ($dccDefStatus) {
+    $defAge = ((Get-Date) - $dccDefStatus.AntivirusSignatureLastUpdated).Days
+    $s = if ($defAge -le 7) { "PASS" } elseif ($defAge -le 14) { "WARN" } else { "FAIL" }
+    Add-Result "89.15" "DCC L2: AV Definitions Current" $s "Definitions last updated: $defAge days ago (DCC L2: <=7 days)" "DCC-L2"
+} else {
+    Add-Result "89.15" "DCC L2: AV Definitions Current" "WARN" "Could not query Defender status" "DCC-L2"
+}
+
+# --- DCC L2 Domain 5: Patch Management ---
+
+# 89.16 Windows Update service running
+$dccWU = Get-Service -Name wuauserv -ErrorAction SilentlyContinue
+$s = if ($dccWU -and $dccWU.StartType -ne "Disabled") { "PASS" } else { "FAIL" }
+Add-Result "89.16" "DCC L2: Windows Update Active" $s "wuauserv: $(if ($dccWU) {"$($dccWU.Status) / $($dccWU.StartType)"} else {'Not found'})" "DCC-L2"
+
+# 89.17 Auto-update enabled
+$dccAutoUpdate = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" "NoAutoUpdate"
+$s = if ($null -eq $dccAutoUpdate -or $dccAutoUpdate -eq 0) { "PASS" } else { "FAIL" }
+Add-Result "89.17" "DCC L2: Auto-Update Enabled" $s "NoAutoUpdate: $(if ($null -eq $dccAutoUpdate) {'Not set (auto-update on by default)'} else {$dccAutoUpdate}) (0 or absent=Enabled)" "DCC-L2"
+
+# --- DCC L2 Domain 6: Removable Media Controls ---
+
+# 89.18 Removable storage write access restricted
+$dccRemWrite = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\RemovableStorageDevices\{53f5630d-b6bf-11d0-94f2-00a0c91efb8b}" "Deny_Write"
+$s = if ($dccRemWrite -eq 1) { "PASS" } else { "WARN" }
+Add-Result "89.18" "DCC L2: Removable Media Write" $s "Deny_Write: $(if ($null -eq $dccRemWrite) {'Not configured (write allowed)'} else {$dccRemWrite}) (1=Denied)" "DCC-L2"
+
+# 89.19 Removable storage read access restricted
+$dccRemRead = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\RemovableStorageDevices\{53f5630d-b6bf-11d0-94f2-00a0c91efb8b}" "Deny_Read"
+$s = if ($dccRemRead -eq 1) { "PASS" } else { "INFO" }
+Add-Result "89.19" "DCC L2: Removable Media Read" $s "Deny_Read: $(if ($null -eq $dccRemRead) {'Not configured (read allowed)'} else {$dccRemRead}) (1=Denied, INFO-only for L2)" "DCC-L2"
+
+# --- DCC L2 Domain 7: Encryption ---
+
+# 89.20 BitLocker enabled on OS drive
+$dccBL = $null
+try { $dccBL = Get-BitLockerVolume -MountPoint "C:" -ErrorAction Stop } catch { }
+$s = if ($dccBL -and $dccBL.ProtectionStatus -eq "On") { "PASS" } else { "FAIL" }
+Add-Result "89.20" "DCC L2: BitLocker OS Drive" $s "Protection: $(if ($dccBL) {"$($dccBL.ProtectionStatus) ($($dccBL.EncryptionMethod))"} else {'Not available / Not encrypted'})" "DCC-L2"
+
+# 89.21 TLS 1.0 and 1.1 disabled (client and server)
+$tls10c = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.0\Client" "Enabled"
+$tls10s = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.0\Server" "Enabled"
+$tls11c = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.1\Client" "Enabled"
+$tls11s = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.1\Server" "Enabled"
+$tls10Off = ($tls10c -eq 0 -and $tls10s -eq 0)
+$tls11Off = ($tls11c -eq 0 -and $tls11s -eq 0)
+$s = if ($tls10Off -and $tls11Off) { "PASS" } elseif ($null -eq $tls10c -and $null -eq $tls11c) { "WARN" } else { "FAIL" }
+Add-Result "89.21" "DCC L2: Legacy TLS Disabled" $s "TLS 1.0 Client: $(if ($null -eq $tls10c) {'Not set'} else {$tls10c}) Server: $(if ($null -eq $tls10s) {'Not set'} else {$tls10s}) | TLS 1.1 Client: $(if ($null -eq $tls11c) {'Not set'} else {$tls11c}) Server: $(if ($null -eq $tls11s) {'Not set'} else {$tls11s}) (0=Disabled)" "DCC-L2"
+
+# --- DCC L2 Domain 8: Audit Logging ---
+
+# 89.22 Audit logon events configured
+$dccAuditLogon = auditpol /get /subcategory:"Logon" 2>$null | Where-Object { $_ -match "Logon" }
+$dccAuditLogonSetting = if ($dccAuditLogon) { ($dccAuditLogon -split "\s{2,}")[-1].Trim() } else { "Not configured" }
+$s = if ($dccAuditLogonSetting -match "Success and Failure|Success") { "PASS" } else { "FAIL" }
+Add-Result "89.22" "DCC L2: Audit Logon Events" $s "Logon audit: $dccAuditLogonSetting (DCC L2 requires Success at minimum)" "DCC-L2"
+
+# 89.23 Security event log minimum size (DCC L2 requires >= 20MB)
+$dccSecLogSize = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\EventLog\Security" "MaxSize"
+$dccSecLogMB = if ($dccSecLogSize) { [math]::Round($dccSecLogSize / 1MB, 1) } else { 0 }
+$s = if ($dccSecLogMB -ge 20) { "PASS" } elseif ($dccSecLogMB -ge 10) { "WARN" } else { "FAIL" }
+Add-Result "89.23" "DCC L2: Security Log Size >=20MB" $s "Security log max: $dccSecLogMB MB (DCC L2 requires >=20 MB)" "DCC-L2"
+
+# ============================================================
+#  SECTION 90: UK MOD DCC LEVEL 3  [DCC-L3]
+#  Defence Cyber Certification Level 3 -- Enhanced Cyber Protection
+#  Extends DCC L2 with advanced security controls
+# ============================================================
+Write-SectionHeader "90. UK MOD DEFENCE CYBER CERTIFICATION LEVEL 3" "DCC-L3"
+
+# --- DCC L3 Domain 1: Multi-Factor Authentication ---
+
+# 90.1 Windows Hello for Business or MFA configured
+$dccWHfB = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\PassportForWork" "Enabled"
+$dccNGC = Get-RegValue "HKLM:\SOFTWARE\Microsoft\PolicyManager\default\Settings\AllowSignInOptions" "value"
+$s = if ($dccWHfB -eq 1) { "PASS" } elseif ($Script:EntraJoined) { "WARN" } else { "FAIL" }
+Add-Result "90.1" "DCC L3: MFA / WHfB Configured" $s "WHfB policy: $(if ($null -eq $dccWHfB) {'Not configured'} else {$dccWHfB}) | Entra joined: $($Script:EntraJoined) (DCC L3 requires MFA for all users)" "DCC-L3"
+
+# 90.2 PIN complexity for WHfB (minimum 6 digits)
+$dccPinMin = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\PassportForWork\PINComplexity" "MinimumPINLength"
+$dccPinMinNum = if ($dccPinMin) { [int]$dccPinMin } else { 0 }
+$s = if ($dccPinMinNum -ge 6) { "PASS" } elseif ($dccWHfB -eq 1) { "WARN" } else { "INFO" }
+Add-Result "90.2" "DCC L3: PIN Min Length >=6" $s "MinimumPINLength: $(if ($dccPinMinNum -eq 0) {'Not configured'} else {$dccPinMinNum}) (DCC L3: >=6)" "DCC-L3"
+
+# --- DCC L3 Domain 2: Advanced Audit and Monitoring ---
+
+# 90.3 Advanced audit policy - process creation
+$dccProcCreate = auditpol /get /subcategory:"Process Creation" 2>$null | Where-Object { $_ -match "Process Creation" }
+$dccProcSetting = if ($dccProcCreate) { ($dccProcCreate -split "\s{2,}")[-1].Trim() } else { "Not configured" }
+$s = if ($dccProcSetting -match "Success and Failure|Success") { "PASS" } else { "FAIL" }
+Add-Result "90.3" "DCC L3: Audit Process Creation" $s "Process Creation: $dccProcSetting (DCC L3 requires Success)" "DCC-L3"
+
+# 90.4 Command-line auditing in process creation events
+$dccCmdLine = Get-RegValue "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\Audit" "ProcessCreationIncludeCmdLine_Enabled"
+$s = if ($dccCmdLine -eq 1) { "PASS" } else { "FAIL" }
+Add-Result "90.4" "DCC L3: Command-Line Auditing" $s "ProcessCreationIncludeCmdLine_Enabled: $(if ($null -eq $dccCmdLine) {'Not configured'} else {$dccCmdLine}) (1=Enabled)" "DCC-L3"
+
+# 90.5 PowerShell script block logging
+$dccPSLog = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ScriptBlockLogging" "EnableScriptBlockLogging"
+$s = if ($dccPSLog -eq 1) { "PASS" } else { "FAIL" }
+Add-Result "90.5" "DCC L3: PS Script Block Logging" $s "EnableScriptBlockLogging: $(if ($null -eq $dccPSLog) {'Not configured'} else {$dccPSLog}) (1=Enabled)" "DCC-L3"
+
+# 90.6 PowerShell module logging
+$dccPSMod = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ModuleLogging" "EnableModuleLogging"
+$s = if ($dccPSMod -eq 1) { "PASS" } else { "WARN" }
+Add-Result "90.6" "DCC L3: PS Module Logging" $s "EnableModuleLogging: $(if ($null -eq $dccPSMod) {'Not configured'} else {$dccPSMod}) (1=Enabled)" "DCC-L3"
+
+# 90.7 Sysmon or advanced monitoring agent present
+$dccSysmon = Get-Service -Name Sysmon -ErrorAction SilentlyContinue
+$dccSysmon64 = Get-Service -Name Sysmon64 -ErrorAction SilentlyContinue
+$dccWEF = Get-Service -Name Wecsvc -ErrorAction SilentlyContinue
+$monAgents = @()
+if ($dccSysmon -or $dccSysmon64) { $monAgents += "Sysmon" }
+if ($dccWEF -and $dccWEF.Status -eq "Running") { $monAgents += "WEF" }
+$s = if ($monAgents.Count -gt 0) { "PASS" } else { "WARN" }
+Add-Result "90.7" "DCC L3: Monitoring Agent Present" $s "Detected: $(if ($monAgents.Count -gt 0) {$monAgents -join ', '} else {'None (Sysmon/WEF recommended for DCC L3)'})" "DCC-L3"
+
+# 90.8 Security event log size (DCC L3 requires >= 100MB)
+$dccL3LogSize = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\EventLog\Security" "MaxSize"
+$dccL3LogMB = if ($dccL3LogSize) { [math]::Round($dccL3LogSize / 1MB, 1) } else { 0 }
+$s = if ($dccL3LogMB -ge 100) { "PASS" } elseif ($dccL3LogMB -ge 50) { "WARN" } else { "FAIL" }
+Add-Result "90.8" "DCC L3: Security Log >=100MB" $s "Security log max: $dccL3LogMB MB (DCC L3 requires >=100 MB)" "DCC-L3"
+
+# --- DCC L3 Domain 3: Privileged Access Management ---
+
+# 90.9 LAPS configured (local admin password rotation)
+$dccLaps = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft Services\AdmPwd" "AdmPwdEnabled"
+$dccLapsNew = Get-RegValue "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\LAPS" "BackupDirectory"
+$s = if ($dccLaps -eq 1 -or $null -ne $dccLapsNew) { "PASS" } else { "FAIL" }
+Add-Result "90.9" "DCC L3: LAPS Configured" $s "Legacy LAPS: $(if ($dccLaps -eq 1) {'Enabled'} else {'Not configured'}) | Windows LAPS: $(if ($null -ne $dccLapsNew) {"BackupDir=$dccLapsNew"} else {'Not configured'})" "DCC-L3"
+
+# 90.10 Restricted admin groups (no standard users in Administrators)
+$dccAdminMembers = @()
+try {
+    $dccAdminMembers = @(Get-LocalGroupMember -Group "Administrators" -ErrorAction Stop)
+} catch {
+    # Fallback for older systems where Get-LocalGroupMember may fail
+    $dccAdminRaw = net localgroup Administrators 2>$null
+    $dccAdminMembers = @($dccAdminRaw | Where-Object { $_ -and $_ -notmatch "^-|^The command|^Comment|^Members|^Alias|^\s*$" })
+}
+$s = if ($dccAdminMembers.Count -le 2) { "PASS" } else { "WARN" }
+Add-Result "90.10" "DCC L3: Restricted Admin Group" $s "$($dccAdminMembers.Count) member(s) in Administrators group (DCC L3: minimise to <=2)" "DCC-L3"
+
+# 90.11 LSA protection enabled (RunAsPPL)
+$dccLSA = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" "RunAsPPL"
+$s = if ($dccLSA -eq 1) { "PASS" } else { "FAIL" }
+Add-Result "90.11" "DCC L3: LSA Protection (PPL)" $s "RunAsPPL: $(if ($null -eq $dccLSA) {'Not configured'} else {$dccLSA}) (1=Enabled)" "DCC-L3"
+
+# --- DCC L3 Domain 4: Advanced Encryption ---
+
+# 90.12 BitLocker with XTS-AES 256
+$dccBL3 = $null
+try { $dccBL3 = Get-BitLockerVolume -MountPoint "C:" -ErrorAction Stop } catch { }
+$s = if ($dccBL3 -and $dccBL3.ProtectionStatus -eq "On" -and $dccBL3.EncryptionMethod -match "XtsAes256|Aes256") { "PASS" } `
+     elseif ($dccBL3 -and $dccBL3.ProtectionStatus -eq "On") { "WARN" } `
+     else { "FAIL" }
+Add-Result "90.12" "DCC L3: BitLocker XTS-AES 256" $s "Encryption: $(if ($dccBL3) {"$($dccBL3.EncryptionMethod) ($($dccBL3.ProtectionStatus))"} else {'Not available'}) (DCC L3 requires XTS-AES 256)" "DCC-L3"
+
+# 90.13 SSL 3.0 disabled
+$dccSSL3 = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 3.0\Client" "Enabled"
+$s = if ($dccSSL3 -eq 0) { "PASS" } elseif ($null -eq $dccSSL3) { "WARN" } else { "FAIL" }
+Add-Result "90.13" "DCC L3: SSL 3.0 Disabled" $s "SSL 3.0 Client Enabled: $(if ($null -eq $dccSSL3) {'Not explicitly set'} else {$dccSSL3}) (0=Disabled)" "DCC-L3"
+
+# 90.14 TLS 1.2 or higher enforced
+$dccTLS12 = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.2\Client" "Enabled"
+$s = if ($null -eq $dccTLS12 -or $dccTLS12 -eq 1) { "PASS" } else { "FAIL" }
+Add-Result "90.14" "DCC L3: TLS 1.2+ Enabled" $s "TLS 1.2 Client Enabled: $(if ($null -eq $dccTLS12) {'Not set (default enabled on modern Windows)'} else {$dccTLS12}) (1=Enabled)" "DCC-L3"
+
+# --- DCC L3 Domain 5: Vulnerability Management ---
+
+# 90.15 Windows Update recently applied (within 30 days)
+$dccLastInstall = try {
+    $hotfixes = Get-HotFix -ErrorAction Stop | Sort-Object InstalledOn -Descending -ErrorAction Stop | Select-Object -First 1
+    $hotfixes
+} catch { $null }
+if ($dccLastInstall -and $dccLastInstall.InstalledOn) {
+    $dccPatchAge = ((Get-Date) - $dccLastInstall.InstalledOn).Days
+    $s = if ($dccPatchAge -le 30) { "PASS" } elseif ($dccPatchAge -le 60) { "WARN" } else { "FAIL" }
+    Add-Result "90.15" "DCC L3: Patches Within 30 Days" $s "Last hotfix: $($dccLastInstall.HotFixID) installed $dccPatchAge days ago (DCC L3: <=30 days)" "DCC-L3"
+} else {
+    Add-Result "90.15" "DCC L3: Patches Within 30 Days" "WARN" "Could not determine last patch date" "DCC-L3"
+}
+
+# 90.16 Defender exploit protection system-wide
+$dccDEP = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\kernel" "MitigationAuditOptions"
+$dccASLR = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management" "MoveImages"
+$s = if ($null -ne $dccDEP -or $null -ne $dccASLR) { "PASS" } else { "WARN" }
+Add-Result "90.16" "DCC L3: Exploit Protection Config" $s "DEP audit options: $(if ($null -ne $dccDEP) {'Configured'} else {'Default'}) | ASLR ForceRelocate: $(if ($null -ne $dccASLR) {$dccASLR} else {'Default'})" "DCC-L3"
+
+# --- DCC L3 Domain 6: Incident Response Readiness ---
+
+# 90.17 Windows Event Forwarding configured
+$dccWEFSvc = Get-Service -Name Wecsvc -ErrorAction SilentlyContinue
+$dccWEFSub = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows\EventLog\EventForwarding\SubscriptionManager" "1"
+$s = if ($dccWEFSvc -and $dccWEFSvc.Status -eq "Running" -and $null -ne $dccWEFSub) { "PASS" } `
+     elseif ($dccWEFSvc -and $dccWEFSvc.Status -eq "Running") { "WARN" } `
+     else { "FAIL" }
+Add-Result "90.17" "DCC L3: Event Forwarding (WEF)" $s "Wecsvc: $(if ($dccWEFSvc) {"$($dccWEFSvc.Status)"} else {'Not found'}) | Subscription: $(if ($null -ne $dccWEFSub) {'Configured'} else {'Not configured'})" "DCC-L3"
+
+# 90.18 Crash dump configuration (useful for incident analysis)
+$dccCrashDump = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\CrashControl" "CrashDumpEnabled"
+$s = if ($dccCrashDump -ge 1 -and $dccCrashDump -le 3) { "PASS" } else { "WARN" }
+Add-Result "90.18" "DCC L3: Crash Dump Configured" $s "CrashDumpEnabled: $(if ($null -eq $dccCrashDump) {'Not configured'} else {$dccCrashDump}) (1=Complete, 2=Kernel, 3=Small)" "DCC-L3"
+
+# --- DCC L3 Domain 7: Network Monitoring ---
+
+# 90.19 DNS-over-HTTPS enabled
+$dccDoH = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Services\Dnscache\Parameters" "EnableAutoDoh"
+$s = if ($dccDoH -eq 2) { "PASS" } else { "WARN" }
+Add-Result "90.19" "DCC L3: DNS-over-HTTPS" $s "EnableAutoDoh: $(if ($null -eq $dccDoH) {'Not configured'} else {$dccDoH}) (2=Enabled)" "DCC-L3"
+
+# 90.20 LLMNR disabled (prevents name resolution poisoning)
+$dccLLMNR = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\DNSClient" "EnableMulticast"
+$s = if ($dccLLMNR -eq 0) { "PASS" } else { "FAIL" }
+Add-Result "90.20" "DCC L3: LLMNR Disabled" $s "EnableMulticast: $(if ($null -eq $dccLLMNR) {'Not configured (LLMNR enabled)'} else {$dccLLMNR}) (0=Disabled)" "DCC-L3"
+
+# 90.21 NetBIOS over TCP/IP disabled (TcpipNetbiosOptions: 0=default/enabled, 1=enabled, 2=disabled)
+$dccNBAdapters = @()
+try {
+    $dccNBAdapters = @(Get-CimInstance Win32_NetworkAdapterConfiguration -ErrorAction SilentlyContinue |
+        Where-Object { $_.IPEnabled -eq $true -and $_.TcpipNetbiosOptions -ne 2 })
+} catch { }
+$s = if ($dccNBAdapters.Count -eq 0) { "PASS" } else { "WARN" }
+Add-Result "90.21" "DCC L3: NetBIOS Disabled" $s "$($dccNBAdapters.Count) adapter(s) with NetBIOS enabled (DCC L3: disable on all)" "DCC-L3"
+
+# --- DCC L3 Domain 8: Credential Guard ---
+
+# 90.22 Credential Guard enabled
+$dccCredGuard = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\LSA" "LsaCfgFlags"
+$s = if ($dccCredGuard -ge 1) { "PASS" } else { "FAIL" }
+Add-Result "90.22" "DCC L3: Credential Guard" $s "LsaCfgFlags: $(if ($null -eq $dccCredGuard) {'Not configured'} else {$dccCredGuard}) (1=Enabled with UEFI lock, 2=Enabled without lock)" "DCC-L3"
+
+# 90.23 Device Guard / VBS enabled
+$dccVBS = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\DeviceGuard" "EnableVirtualizationBasedSecurity"
+$s = if ($dccVBS -eq 1) { "PASS" } else { "WARN" }
+Add-Result "90.23" "DCC L3: VBS / Device Guard" $s "EnableVirtualizationBasedSecurity: $(if ($null -eq $dccVBS) {'Not configured'} else {$dccVBS}) (1=Enabled)" "DCC-L3"
+
+# 90.24 HVCI (Memory Integrity) enabled
+$dccHVCI = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity" "Enabled"
+$s = if ($dccHVCI -eq 1) { "PASS" } else { "WARN" }
+Add-Result "90.24" "DCC L3: HVCI Memory Integrity" $s "HVCI Enabled: $(if ($null -eq $dccHVCI) {'Not configured'} else {$dccHVCI}) (1=Enabled)" "DCC-L3"
+
+# 90.25 Password minimum length (DCC L3 requires >= 15)
+$dccL3PwLen = Get-SecEditValue "MinimumPasswordLength"
+$dccL3PwLenNum = if ($dccL3PwLen) { [int]$dccL3PwLen } else { 0 }
+$s = if ($dccL3PwLenNum -ge 15) { "PASS" } else { "FAIL" }
+Add-Result "90.25" "DCC L3: Password Min Length >=15" $s "MinimumPasswordLength: $dccL3PwLenNum (DCC L3 requires >=15)" "DCC-L3"
+
+# ============================================================
 #  CLEAN UP
 # ============================================================
 if (Test-Path $SecCfg) { Remove-Item $SecCfg -Force -ErrorAction SilentlyContinue }
@@ -5600,12 +5957,16 @@ $cisL2Results  = $Results | Where-Object { $_.Framework -eq "CIS-L2"  -and $_.St
 $ncscResults   = $Results | Where-Object { $_.Framework -eq "NCSC"    -and $_.Status -ne "INFO" }
 $ceResults     = $Results | Where-Object { $_.Framework -match "^CE"   -and $_.Status -ne "INFO" }
 $entraResults  = $Results | Where-Object { $_.Framework -eq "EntraID" -and $_.Status -ne "INFO" }
+$dccL2Results  = $Results | Where-Object { $_.Framework -eq "DCC-L2"  -and $_.Status -ne "INFO" }
+$dccL3Results  = $Results | Where-Object { $_.Framework -eq "DCC-L3"  -and $_.Status -ne "INFO" }
 
 $cisL1Count    = $cisL1Results.Count
 $cisL2Count    = $cisL2Results.Count
 $ncscCount     = $ncscResults.Count
 $ceCount       = $ceResults.Count
 $entraCount    = $entraResults.Count
+$dccL2Count    = $dccL2Results.Count
+$dccL3Count    = $dccL3Results.Count
 
 # ---- Overall score ----
 $score = if ($scoreable -gt 0) { [math]::Round(($passCount / $scoreable) * 100, 1) } else { 0 }
@@ -5639,6 +6000,18 @@ $ncscScore = if ($ncscCount -gt 0) {
     $ncscWeighted = ($ncscPassCount * 1.0) + ($ncscWarnCount * 0.5)
     [math]::Round(($ncscWeighted / $ncscCount) * 100, 1)
 } else { 0 }
+
+# ---- DCC Level 2 score ----
+$dccL2Pass  = ($dccL2Results | Where-Object { $_.Status -eq "PASS" }).Count
+$dccL2Fail  = ($dccL2Results | Where-Object { $_.Status -eq "FAIL" }).Count
+$dccL2Warn  = ($dccL2Results | Where-Object { $_.Status -eq "WARN" }).Count
+$dccL2Score = if ($dccL2Count -gt 0) { [math]::Round(($dccL2Pass / $dccL2Count) * 100, 1) } else { 0 }
+
+# ---- DCC Level 3 score ----
+$dccL3Pass  = ($dccL3Results | Where-Object { $_.Status -eq "PASS" }).Count
+$dccL3Fail  = ($dccL3Results | Where-Object { $_.Status -eq "FAIL" }).Count
+$dccL3Warn  = ($dccL3Results | Where-Object { $_.Status -eq "WARN" }).Count
+$dccL3Score = if ($dccL3Count -gt 0) { [math]::Round(($dccL3Pass / $dccL3Count) * 100, 1) } else { 0 }
 
 # ---- Risk rating ----
 $overallRisk = Get-RiskRating $score
@@ -5698,6 +6071,8 @@ $frameworkScoreMap = @{
     "CE+"     = @{ Score = $ceScore;    Pass = $cePass;    Fail = $ceFail;    Warn = $ceWarn;    Total = $ceCount;    Label = "Cyber Essentials" }
     "EntraID" = @{ Score = $entraScore; Pass = $entraPass; Fail = $entraFail; Warn = $entraWarn; Total = $entraCount; Label = "Entra ID / M365" }
     "NCSC"    = @{ Score = $ncscScore;  Pass = $ncscPassCount; Fail = $ncscFailCount; Warn = $ncscWarnCount; Total = $ncscCount; Label = "NCSC Alignment" }
+    "DCC-L2"  = @{ Score = $dccL2Score; Pass = $dccL2Pass; Fail = $dccL2Fail; Warn = $dccL2Warn; Total = $dccL2Count; Label = "MoD DCC Level 2" }
+    "DCC-L3"  = @{ Score = $dccL3Score; Pass = $dccL3Pass; Fail = $dccL3Fail; Warn = $dccL3Warn; Total = $dccL3Count; Label = "MoD DCC Level 3" }
 }
 
 # ============================================================
@@ -5720,7 +6095,7 @@ Write-ReportLine "  COMPLIANCE ATTESTATION" "White"
 Write-Divider "-"
 Write-ReportLine ""
 
-foreach ($fwKey in @("CIS","CIS-L2","CE+","NCSC","EntraID")) {
+foreach ($fwKey in @("CIS","CIS-L2","CE+","NCSC","EntraID","DCC-L2","DCC-L3")) {
     $fw = $frameworkScoreMap[$fwKey]
     if ($fw.Total -eq 0) { continue }
     $thresh = $Script:ComplianceThresholds[$fwKey]
@@ -5835,6 +6210,8 @@ Write-DashboardRow "CIS Level 1"        $cisL1Score $cisL1Pass $cisL1Fail $cisL1
 Write-DashboardRow "CIS Level 2"        $l2Score    $cisL2Pass $cisL2Fail $cisL2Warn $cisL2Count
 Write-DashboardRow "Cyber Essentials"    $ceScore    $cePass    $ceFail    $ceWarn    $ceCount
 Write-DashboardRow "Entra ID / M365"    $entraScore $entraPass $entraFail $entraWarn $entraCount
+Write-DashboardRow "MoD DCC Level 2"    $dccL2Score $dccL2Pass $dccL2Fail $dccL2Warn $dccL2Count
+Write-DashboardRow "MoD DCC Level 3"    $dccL3Score $dccL3Pass $dccL3Fail $dccL3Warn $dccL3Count
 
 # NCSC gets special treatment due to weighted scoring
 if ($ncscCount -gt 0) {
@@ -5887,7 +6264,8 @@ $sectionNames = @{
     "75"="CIS L1 MSS/Network"; "76"="CIS L1 Printer"; "77"="CIS L1 System Tmpl"; "78"="CIS L1 Win Components";
     "79"="CIS L1 WiFi/User"; "80"="App Patch Currency";
     "81"="Custom Org Checks"; "82"="Chrome Policy"; "83"="Firefox Policy"; "84"="Driver/Firmware";
-    "85"="Certificate Store"; "86"="Priv Escalation Risk"; "87"="Network Posture"; "88"="Backup/Recovery"
+    "85"="Certificate Store"; "86"="Priv Escalation Risk"; "87"="Network Posture"; "88"="Backup/Recovery";
+    "89"="MoD DCC Level 2"; "90"="MoD DCC Level 3"
 }
 
 # Sort sections numerically (handle "26A","26B" etc.)
@@ -5985,7 +6363,7 @@ if ($Script:PreviousData) {
     if ($Script:PreviousData.framework_scores) {
         Write-ReportLine ""
         Write-ReportLine "  Framework Score Changes:" "White"
-        foreach ($fwKey in @("CIS","CIS-L2","CE+","NCSC","EntraID")) {
+        foreach ($fwKey in @("CIS","CIS-L2","CE+","NCSC","EntraID","DCC-L2","DCC-L3")) {
             $fw = $frameworkScoreMap[$fwKey]
             if ($fw.Total -eq 0) { continue }
             $prevFwScore = $null
@@ -6055,6 +6433,8 @@ if ($failedItems.Count -gt 0) {
             "CE+"     { "Cyber Essentials Plus" }
             "NCSC"    { "NCSC Alignment" }
             "EntraID" { "Entra ID / M365" }
+            "DCC-L2"  { "MoD DCC Level 2" }
+            "DCC-L3"  { "MoD DCC Level 3" }
             default   { $group.Name }
         }
         $subHead = "  $fwName ($($group.Count) failures):"
@@ -6101,6 +6481,8 @@ if ($warnItems.Count -gt 0) {
             "CE+"     { "Cyber Essentials Plus" }
             "NCSC"    { "NCSC Alignment" }
             "EntraID" { "Entra ID / M365" }
+            "DCC-L2"  { "MoD DCC Level 2" }
+            "DCC-L3"  { "MoD DCC Level 3" }
             default   { $group.Name }
         }
         $subHead = "  $fwName ($($group.Count) warnings):"
@@ -6208,6 +6590,16 @@ if ($entraCount -gt 0) {
 # ---- NCSC Alignment Section ----
 if ($ncscCount -gt 0) {
     Write-FrameworkSection -SectionTitle "NCSC ALIGNMENT DETAILED REPORT" -Score $ncscScore -FrameworkResults $ncscResults
+}
+
+# ---- MoD DCC Level 2 Section ----
+if ($dccL2Count -gt 0) {
+    Write-FrameworkSection -SectionTitle "MOD DCC LEVEL 2 DETAILED REPORT" -Score $dccL2Score -FrameworkResults $dccL2Results
+}
+
+# ---- MoD DCC Level 3 Section ----
+if ($dccL3Count -gt 0) {
+    Write-FrameworkSection -SectionTitle "MOD DCC LEVEL 3 DETAILED REPORT" -Score $dccL3Score -FrameworkResults $dccL3Results
 }
 
 # ============================================================
@@ -6343,6 +6735,14 @@ $v7Lines = @(
 )
 foreach ($l in $v7Lines) { Write-ReportLine $l }
 
+Write-ReportLine ""
+Write-ReportLine "  UK MoD Defence Cyber Certification:" "White"
+$dccLines = @(
+    "    89. DCC Level 2 Baseline           (DCC-L2 | Def Stan 05-138)",
+    "    90. DCC Level 3 Enhanced            (DCC-L3 | Advanced Controls)"
+)
+foreach ($l in $dccLines) { Write-ReportLine $l }
+
 # ============================================================
 #  CSV EXPORT (with framework mappings)
 # ============================================================
@@ -6402,7 +6802,7 @@ $jsonObj = [ordered]@{
         risk_rating    = $overallRisk.Label
     }
     framework_scores = @(
-        foreach ($fwKey in @("CIS","CIS-L2","CE+","NCSC","EntraID")) {
+        foreach ($fwKey in @("CIS","CIS-L2","CE+","NCSC","EntraID","DCC-L2","DCC-L3")) {
             $fw = $frameworkScoreMap[$fwKey]
             if ($fw.Total -gt 0) {
                 [ordered]@{
@@ -6418,7 +6818,7 @@ $jsonObj = [ordered]@{
         }
     )
     compliance = @(
-        foreach ($fwKey in @("CIS","CIS-L2","CE+","NCSC","EntraID")) {
+        foreach ($fwKey in @("CIS","CIS-L2","CE+","NCSC","EntraID","DCC-L2","DCC-L3")) {
             $fw = $frameworkScoreMap[$fwKey]
             if ($fw.Total -eq 0) { continue }
             $thresh = $Script:ComplianceThresholds[$fwKey]
@@ -6525,7 +6925,7 @@ $sbomObj | ConvertTo-Json -Depth 5 | Set-Content -Path $SbomPath -Encoding UTF8
 # ============================================================
 # Build framework score data for charts
 $fwChartData = @()
-foreach ($fwKey in @("CIS","CIS-L2","CE+","NCSC","EntraID")) {
+foreach ($fwKey in @("CIS","CIS-L2","CE+","NCSC","EntraID","DCC-L2","DCC-L3")) {
     $fw = $frameworkScoreMap[$fwKey]
     if ($fw.Total -gt 0) {
         $fwChartData += [ordered]@{ label = $fw.Label; score = $fw.Score; pass = $fw.Pass; fail = $fw.Fail; warn = $fw.Warn; total = $fw.Total }
@@ -6538,7 +6938,7 @@ if ($fwChartData.Count -eq 0) { $fwChartJson = "[]" }
 
 # Build compliance data for HTML
 $complianceRows = ""
-foreach ($fwKey in @("CIS","CIS-L2","CE+","NCSC","EntraID")) {
+foreach ($fwKey in @("CIS","CIS-L2","CE+","NCSC","EntraID","DCC-L2","DCC-L3")) {
     $fw = $frameworkScoreMap[$fwKey]
     if ($fw.Total -eq 0) { continue }
     $thresh = $Script:ComplianceThresholds[$fwKey]
@@ -6597,6 +6997,8 @@ if ($failedItems.Count -gt 0) {
             "CE+"     { "Cyber Essentials Plus" }
             "NCSC"    { "NCSC Alignment" }
             "EntraID" { "Entra ID / M365" }
+            "DCC-L2"  { "MoD DCC Level 2" }
+            "DCC-L3"  { "MoD DCC Level 3" }
             default   { $group.Name }
         }
         $remediationHtml += "<h4>$fwName ($($group.Count) failures)</h4><ol>`n"
@@ -6646,7 +7048,7 @@ if ($Script:PreviousData) {
 
 # Build framework dashboard rows for HTML table
 $fwDashboardRows = ""
-foreach ($fwKey in @("CIS","CIS-L2","CE+","NCSC","EntraID")) {
+foreach ($fwKey in @("CIS","CIS-L2","CE+","NCSC","EntraID","DCC-L2","DCC-L3")) {
     $fw = $frameworkScoreMap[$fwKey]
     if ($fw.Total -gt 0) {
         $fwDashboardRows += "<tr><td>$($fw.Label)</td><td>$($fw.Score)%</td><td>$($fw.Pass)</td><td>$($fw.Fail)</td><td>$($fw.Warn)</td><td>$($fw.Total)</td></tr>`n"
@@ -6829,7 +7231,7 @@ $htmlParts.Add('<option value="">All</option><option value="PASS">PASS</option><
 $htmlParts.Add('</select>')
 $htmlParts.Add('<label>Framework:</label>')
 $htmlParts.Add('<select id="fwFilter" onchange="filterResults()">')
-$htmlParts.Add('<option value="">All</option><option value="CIS">CIS</option><option value="CIS-L2">CIS-L2</option><option value="CE+">CE+</option><option value="NCSC">NCSC</option><option value="EntraID">EntraID</option><option value="Custom">Custom</option>')
+$htmlParts.Add('<option value="">All</option><option value="CIS">CIS</option><option value="CIS-L2">CIS-L2</option><option value="CE+">CE+</option><option value="NCSC">NCSC</option><option value="EntraID">EntraID</option><option value="DCC-L2">DCC-L2</option><option value="DCC-L3">DCC-L3</option><option value="Custom">Custom</option>')
 $htmlParts.Add('</select>')
 $htmlParts.Add('<input type="text" id="searchFilter" placeholder="Search descriptions..." oninput="filterResults()">')
 $htmlParts.Add('</div>')
