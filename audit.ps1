@@ -5723,11 +5723,15 @@ try { $dccBL = Get-BitLockerVolume -MountPoint "C:" -ErrorAction Stop } catch { 
 $s = if ($dccBL -and $dccBL.ProtectionStatus -eq "On") { "PASS" } else { "FAIL" }
 Add-Result "89.20" "DCC L2: BitLocker OS Drive" $s "Protection: $(if ($dccBL) {"$($dccBL.ProtectionStatus) ($($dccBL.EncryptionMethod))"} else {'Not available / Not encrypted'})" "DCC-L2"
 
-# 89.21 TLS 1.0 and 1.1 disabled
-$tls10 = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.0\Client" "Enabled"
-$tls11 = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.1\Client" "Enabled"
-$s = if ($tls10 -eq 0 -and $tls11 -eq 0) { "PASS" } elseif ($null -eq $tls10 -and $null -eq $tls11) { "WARN" } else { "FAIL" }
-Add-Result "89.21" "DCC L2: Legacy TLS Disabled" $s "TLS 1.0: $(if ($null -eq $tls10) {'Not explicitly set'} else {$tls10}) | TLS 1.1: $(if ($null -eq $tls11) {'Not explicitly set'} else {$tls11}) (0=Disabled)" "DCC-L2"
+# 89.21 TLS 1.0 and 1.1 disabled (client and server)
+$tls10c = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.0\Client" "Enabled"
+$tls10s = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.0\Server" "Enabled"
+$tls11c = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.1\Client" "Enabled"
+$tls11s = Get-RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.1\Server" "Enabled"
+$tls10Off = ($tls10c -eq 0 -and $tls10s -eq 0)
+$tls11Off = ($tls11c -eq 0 -and $tls11s -eq 0)
+$s = if ($tls10Off -and $tls11Off) { "PASS" } elseif ($null -eq $tls10c -and $null -eq $tls11c) { "WARN" } else { "FAIL" }
+Add-Result "89.21" "DCC L2: Legacy TLS Disabled" $s "TLS 1.0 Client: $(if ($null -eq $tls10c) {'Not set'} else {$tls10c}) Server: $(if ($null -eq $tls10s) {'Not set'} else {$tls10s}) | TLS 1.1 Client: $(if ($null -eq $tls11c) {'Not set'} else {$tls11c}) Server: $(if ($null -eq $tls11s) {'Not set'} else {$tls11s}) (0=Disabled)" "DCC-L2"
 
 # --- DCC L2 Domain 8: Audit Logging ---
 
@@ -5812,8 +5816,14 @@ $s = if ($dccLaps -eq 1 -or $null -ne $dccLapsNew) { "PASS" } else { "FAIL" }
 Add-Result "90.9" "DCC L3: LAPS Configured" $s "Legacy LAPS: $(if ($dccLaps -eq 1) {'Enabled'} else {'Not configured'}) | Windows LAPS: $(if ($null -ne $dccLapsNew) {"BackupDir=$dccLapsNew"} else {'Not configured'})" "DCC-L3"
 
 # 90.10 Restricted admin groups (no standard users in Administrators)
-$dccAdminGroup = net localgroup Administrators 2>$null
-$dccAdminMembers = @($dccAdminGroup | Where-Object { $_ -and $_ -notmatch "^-|^The command|^Comment|^Members|^Alias|^\s*$" })
+$dccAdminMembers = @()
+try {
+    $dccAdminMembers = @(Get-LocalGroupMember -Group "Administrators" -ErrorAction Stop)
+} catch {
+    # Fallback for older systems where Get-LocalGroupMember may fail
+    $dccAdminRaw = net localgroup Administrators 2>$null
+    $dccAdminMembers = @($dccAdminRaw | Where-Object { $_ -and $_ -notmatch "^-|^The command|^Comment|^Members|^Alias|^\s*$" })
+}
 $s = if ($dccAdminMembers.Count -le 2) { "PASS" } else { "WARN" }
 Add-Result "90.10" "DCC L3: Restricted Admin Group" $s "$($dccAdminMembers.Count) member(s) in Administrators group (DCC L3: minimise to <=2)" "DCC-L3"
 
@@ -5890,7 +5900,7 @@ $dccLLMNR = Get-RegValue "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\DNSClient
 $s = if ($dccLLMNR -eq 0) { "PASS" } else { "FAIL" }
 Add-Result "90.20" "DCC L3: LLMNR Disabled" $s "EnableMulticast: $(if ($null -eq $dccLLMNR) {'Not configured (LLMNR enabled)'} else {$dccLLMNR}) (0=Disabled)" "DCC-L3"
 
-# 90.21 NetBIOS over TCP/IP disabled
+# 90.21 NetBIOS over TCP/IP disabled (TcpipNetbiosOptions: 0=default/enabled, 1=enabled, 2=disabled)
 $dccNBAdapters = @()
 try {
     $dccNBAdapters = @(Get-CimInstance Win32_NetworkAdapterConfiguration -ErrorAction SilentlyContinue |

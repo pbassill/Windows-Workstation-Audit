@@ -4,7 +4,7 @@
 
 **Comprehensive security auditing for Windows 10/11 endpoints**
 
-Validate builds against CIS Benchmarks, Cyber Essentials, NIST 800-53, ISO 27001, PCI-DSS, DISA STIG, and Microsoft Entra ID security controls — all from a single PowerShell script.
+Validate builds against CIS Benchmarks, Cyber Essentials, NIST 800-53, ISO 27001, PCI-DSS, DISA STIG, UK MoD Defence Cyber Certification, and Microsoft Entra ID security controls — all from a single PowerShell script.
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-blue.svg)](https://docs.microsoft.com/en-us/powershell/)
@@ -34,7 +34,7 @@ Validate builds against CIS Benchmarks, Cyber Essentials, NIST 800-53, ISO 27001
 
 ## Overview
 
-**win-11-build-audit** is a standalone PowerShell auditing tool that performs **800+ security checks** across **88 audit categories**. It evaluates Windows 10/11 endpoints against multiple industry-standard frameworks simultaneously:
+**win-11-build-audit** is a standalone PowerShell auditing tool that performs **800+ security checks** across **90 audit categories**. It evaluates Windows 10/11 endpoints against multiple industry-standard frameworks simultaneously:
 
 | Framework | Description |
 |-----------|-------------|
@@ -44,6 +44,8 @@ Validate builds against CIS Benchmarks, Cyber Essentials, NIST 800-53, ISO 27001
 | **Cyber Essentials Plus** | CE+ additional technical verification controls |
 | **Entra ID / M365** | Microsoft Entra ID, Intune, WHfB, MDE, and Conditional Access |
 | **NCSC** | NCSC-aligned security recommendations |
+| **UK MoD DCC Level 2** | Defence Cyber Certification baseline cyber hygiene |
+| **UK MoD DCC Level 3** | Defence Cyber Certification enhanced cyber protection |
 | **NIST SP 800-53** | Cross-referenced via framework-mappings.json |
 | **ISO 27001:2022** | Cross-referenced via framework-mappings.json |
 | **PCI-DSS v4.0** | Cross-referenced via framework-mappings.json |
@@ -53,7 +55,7 @@ Results are displayed with colour-coded console output and saved to a plain-text
 
 ## Key Features
 
-- **Multi-framework auditing** — Assess endpoints against CIS L1, CIS L2, Cyber Essentials, CE+, Entra ID, and NCSC in a single pass
+- **Multi-framework auditing** — Assess endpoints against CIS L1, CIS L2, Cyber Essentials, CE+, Entra ID, NCSC, and UK MoD DCC in a single pass
 - **Cross-framework compliance mappings** — Map checks to NIST 800-53, ISO 27001, PCI-DSS, and DISA STIG via `framework-mappings.json`
 - **Custom organisation checks** — Define your own audit rules in `custom-checks.json` without modifying the script
 - **Entra ID-aware** — Cloud-managed controls (password policy, lockout, account lifecycle) are contextually adjusted to avoid false FAILs on Entra-joined devices
@@ -115,6 +117,8 @@ The script produces a colour-coded console summary and writes four output files 
 .\audit.ps1 -Audit cis2     # CIS Level 2 checks only
 .\audit.ps1 -Audit ncsc     # NCSC alignment checks only
 .\audit.ps1 -Audit entra    # Entra ID / M365 checks only
+.\audit.ps1 -Audit dcc2     # UK MoD DCC Level 2 checks only
+.\audit.ps1 -Audit dcc3     # UK MoD DCC Level 3 checks only
 
 # Delta / trend comparison against a previous audit
 .\audit.ps1 -PreviousReport "C:\audits\DESKTOP-ABC_Audit_2025-01-01.json"
@@ -140,6 +144,8 @@ The script produces a colour-coded console summary and writes four output files 
 | `cis2`  | CIS Level 2 checks only |
 | `ncsc`  | NCSC alignment checks only |
 | `entra` | Entra ID / M365 checks only |
+| `dcc2`  | UK MoD DCC Level 2 checks only |
+| `dcc3`  | UK MoD DCC Level 3 checks only |
 
 > **Tip:** Running without the `-Audit` parameter is equivalent to `-Audit all`.
 
@@ -247,13 +253,13 @@ Section 80 (**Application Patch Currency**) checks installed desktop application
 1. **Compliance Attestation** — Per-framework pass/fail verdicts against configurable thresholds
 2. **Executive Summary** — Overall risk rating, unweighted and severity-weighted compliance scores, Top 5 Risks, Quick Wins
 3. **Framework Score Dashboard** — Side-by-side framework scores with SVG doughnut charts and ASCII progress bars
-4. **Section Scorecard** — Pass/fail/warn rates for each of the 88 audit sections
+4. **Section Scorecard** — Pass/fail/warn rates for each of the 90 audit sections
 5. **Device Context** — Hostname, OS edition, join type, tenant, MDM, TPM, Secure Boot, BIOS/UEFI, IP addresses
 6. **Delta Comparison** — Score changes, resolved failures, regressions, and new failures vs. a previous audit (requires `-PreviousReport`)
 7. **Priority Remediation** — Failed controls grouped by framework with severity tags and one-line remediation guidance
 8. **Warnings Summary** — Warnings grouped by framework for manual review
 9. **Per-Framework Detail** — Full PASS / FAIL / WARN listing for each framework
-10. **Sections Audited** — All 88 sections grouped into logical categories
+10. **Sections Audited** — All 90 sections grouped into logical categories
 
 ### Delta / Trend Comparison
 
@@ -281,7 +287,7 @@ Severity ratings also drive the **weighted score** (Critical ×3, High ×2, Medi
 ## Audit Categories
 
 <details>
-<summary><strong>View all 88 audit categories</strong></summary>
+<summary><strong>View all 90 audit categories</strong></summary>
 
 | # | Category | Frameworks |
 |---|----------|------------|
@@ -373,6 +379,8 @@ Severity ratings also drive the **weighted score** (Critical ×3, High ×2, Medi
 | 86 | Local Privilege Escalation Risk | CIS L2, CE+ |
 | 87 | Network Security Posture | CIS L2, CE+ |
 | 88 | Backup & Recovery Readiness | CE+, NCSC |
+| 89 | UK MoD DCC Level 2 — Baseline Cyber Hygiene | DCC-L2 |
+| 90 | UK MoD DCC Level 3 — Enhanced Cyber Protection | DCC-L3 |
 
 </details>
 
